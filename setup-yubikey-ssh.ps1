@@ -24,7 +24,35 @@ if (-not (Test-Path -LiteralPath $sshDir)) {
 }
 
 $destinationPath = Join-Path $sshDir (Split-Path -Leaf $sourcePath)
-Move-Item -LiteralPath $sourcePath -Destination $destinationPath -Force
+Copy-Item -LiteralPath $sourcePath -Destination $destinationPath -Force
+
+Write-Host "Copied: $sourcePath -> $destinationPath"
+
+# Extract and store the YubiKey authentication public key
+$publicKeyPath = Join-Path $sshDir 'yubikey_auth_key.pub'
+Write-Host "Extracting YubiKey authentication public key..."
+
+try {
+    $publicKeyOutput = & ssh-keygen -D $destinationPath -e 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        # Filter for authentication key (may contain multiple keys)
+        $keys = @($publicKeyOutput) -split '\n' | Where-Object { $_ -match '\S' }
+        $authKey = $keys | Where-Object { $_ -match '(?i)(auth|authentication)' } | Select-Object -First 1
+        
+        if (-not $authKey) {
+            # If no explicit auth label, use the first key
+            $authKey = $keys | Select-Object -First 1
+            Write-Host "No authentication label found, using first key"
+        }
+        
+        Set-Content -LiteralPath $publicKeyPath -Value $authKey
+        Write-Host "Stored YubiKey authentication public key: $publicKeyPath"
+    } else {
+        Write-Warning "Failed to extract YubiKey public key. ssh-keygen returned exit code $LASTEXITCODE"
+    }
+} catch {
+    Write-Warning "Error extracting YubiKey public key: $_"
+}
 
 $configPath = Join-Path $sshDir 'config'
 if (-not (Test-Path -LiteralPath $configPath)) {
@@ -61,6 +89,14 @@ if (-not $foundProvider) {
 
 Set-Content -LiteralPath $configPath -Value $result
 
-Write-Host "Moved: $sourcePath -> $destinationPath"
 Write-Host "Updated SSH config: $configPath"
 Write-Host "Configured: $desiredLine"
+
+# Add .ssh directory to PATH if not already present
+if ($env:PATH -notlike "*$sshDir*") {
+    $env:PATH = "$sshDir;$env:PATH"
+    [Environment]::SetEnvironmentVariable("PATH", $env:PATH, [EnvironmentVariableTarget]::User)
+    Write-Host "Added $sshDir to PATH"
+} else {
+    Write-Host "$sshDir is already in PATH"
+}

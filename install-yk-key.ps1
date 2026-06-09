@@ -6,11 +6,7 @@ param(
 
 	[int]$Port = 22,
 
-	[string]$Pkcs11Path,
-
-	[int]$KeyIndex = 1,
-
-	[switch]$AllKeys
+	[string]$Pkcs11Path
 )
 
 Set-StrictMode -Version Latest
@@ -111,16 +107,11 @@ function Escape-ForSingleQuotedShellString {
 $provider = Resolve-Pkcs11Provider -ExplicitPath $Pkcs11Path
 $allExportedKeys = @(Get-YubiKeyPublicKeys -ProviderPath $provider)
 
-if (-not $AllKeys) {
-	if ($KeyIndex -lt 1 -or $KeyIndex -gt $allExportedKeys.Count) {
-		throw "KeyIndex must be between 1 and $($allExportedKeys.Count)."
-	}
+if ($allExportedKeys.Count -ne 1) {
+	throw "Expected exactly one PIV Authentication key, but found $($allExportedKeys.Count)."
+}
 
-	$selectedKeys = @($allExportedKeys[$KeyIndex - 1])
-}
-else {
-	$selectedKeys = $allExportedKeys
-}
+$selectedKey = $allExportedKeys[0]
 
 $remoteTarget = Get-RemoteTarget -HostName $RemoteHost -UserName $RemoteUser
 
@@ -134,16 +125,11 @@ $sshBaseArgs.Add($remoteTarget)
 $prepCommand = 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys'
 Invoke-CheckedCommand -FilePath 'ssh' -Arguments @($sshBaseArgs + $prepCommand) -FailureMessage "Failed to initialize ~/.ssh on remote host $remoteTarget."
 
-$installedCount = 0
-foreach ($publicKey in $selectedKeys) {
-	$escapedKey = Escape-ForSingleQuotedShellString -Text $publicKey
-	$installCommand = "grep -qxF '$escapedKey' ~/.ssh/authorized_keys || echo '$escapedKey' >> ~/.ssh/authorized_keys"
-
-	Invoke-CheckedCommand -FilePath 'ssh' -Arguments @($sshBaseArgs + $installCommand) -FailureMessage "Failed to install key on remote host $remoteTarget."
-	$installedCount++
-}
+$escapedKey = Escape-ForSingleQuotedShellString -Text $selectedKey
+$installCommand = "grep -qxF '$escapedKey' ~/.ssh/authorized_keys || echo '$escapedKey' >> ~/.ssh/authorized_keys"
+Invoke-CheckedCommand -FilePath 'ssh' -Arguments @($sshBaseArgs + $installCommand) -FailureMessage "Failed to install key on remote host $remoteTarget."
 
 Write-Host "PKCS#11 provider: $provider"
 Write-Host "Exported keys found: $($allExportedKeys.Count)"
-Write-Host "Installed keys: $installedCount"
+Write-Host "Installed keys: 1"
 Write-Host "Remote target: $remoteTarget"
