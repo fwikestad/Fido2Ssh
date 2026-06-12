@@ -15,17 +15,27 @@ Set-StrictMode -Version Latest
 function Resolve-FidoPublicKeyPath {
     param([Parameter(Mandatory = $true)][string]$SshDirectory)
 
-    $keys = @(Get-ChildItem -Path $SshDirectory -File -Filter "id_*_sk_rk*.pub" -ErrorAction SilentlyContinue |
+    $files = @(Get-ChildItem -Path $SshDirectory -File -Filter "id_*_sk_rk*.pub" -ErrorAction SilentlyContinue |
         Sort-Object -Property LastWriteTimeUtc -Descending)
 
-    if ($keys.Count -eq 0) {
+    if ($files.Count -eq 0) {
         throw "No FIDO2 public key (*.pub) was found in $SshDirectory. Provide -PublicKeyPath explicitly."
     }
-    if ($keys.Count -eq 1) { return $keys[0].FullName }
+    if ($files.Count -eq 1) { return $files[0].FullName }
+
+    # Expected filename forms:
+    #   id_ed25519_sk_rk_<thumbprint>
+    #   id_ed25519_sk_rk_<label>_<thumbprint>
+    # Display the label when present, otherwise the thumbprint.
+    $keys = $files | ForEach-Object {
+        $parts = [System.IO.Path]::GetFileNameWithoutExtension($_.Name) -split '_'
+        $displayValue = if ($parts.Count -ge 6) { $parts[4] } else { $parts[-1] }
+        [PSCustomObject]@{ FullName = $_.FullName; DisplayValue = $displayValue }
+    }
 
     Write-Host "Multiple YubiKey FIDO2 public keys were found. Select one:"
     for ($i = 0; $i -lt $keys.Count; $i++) {
-        Write-Host ("[{0}] {1}" -f ($i + 1), $keys[$i].Name)
+        Write-Host ("[{0}] {1}" -f ($i + 1), $keys[$i].DisplayValue)
     }
 
     while ($true) {
