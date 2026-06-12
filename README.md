@@ -7,6 +7,7 @@ workstation, then publish the matching public key to a Linux host either over
 SSH or via the Azure VM Run Command channel.
 
 Targets Windows PowerShell 5.1 and PowerShell 7+.
+Most functions schould run on Linux aswell, but it's not tested.
 
 ## Prerequisites
 
