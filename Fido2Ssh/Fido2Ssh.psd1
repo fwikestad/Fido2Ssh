@@ -7,6 +7,7 @@
     PowerShellVersion = '5.1'
 
     FunctionsToExport = @(
+        'Enable-Fido2SshKeys',
         'Import-Fido2SshKey',
         'New-Fido2SshKey',
         'Publish-Fido2SshKey',

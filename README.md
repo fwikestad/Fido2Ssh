@@ -16,6 +16,9 @@ Targets Windows PowerShell 5.1 and PowerShell 7+.
   subscription that has permission to run
   `Microsoft.Compute/virtualMachines/runCommand/action` on the target VM.
 
+Run `Enable-Fido2SshKeys` from an **elevated** PowerShell session to install
+the OpenSSH Client capability and start the `ssh-agent` service in one go.
+
 ## Installation
 
 ```powershell
@@ -37,6 +40,7 @@ Fido2Ssh/
     Get-Fido2CanonicalName.ps1        # shared helpers (thumbprint + canonical filename)
     Resolve-Fido2PublicKeyPath.ps1    # shared helper, not exported
   Public/
+    Enable-Fido2SshKeys.ps1
     Import-Fido2SshKey.ps1
     New-Fido2SshKey.ps1
     Publish-Fido2SshKey.ps1
@@ -48,6 +52,31 @@ Files under `Public/` are exported. Files under `Private/` are available to all
 public functions but not to module consumers.
 
 ## Commands
+
+### `Enable-Fido2SshKeys`
+
+One-shot bootstrapper that prepares a Windows workstation for the rest of the
+module: installs the OpenSSH Client Windows capability (provides `ssh`,
+`ssh-keygen`, `ssh-add`) if missing, sets the `ssh-agent` service start type
+to `Automatic`, and starts it. Run from an **elevated** PowerShell session.
+
+Azure CLI is intentionally not installed by this script — install `az`
+separately if you plan to use `Publish-Fido2SshKeyToAzureVM`.
+
+```powershell
+# Elevated PowerShell: install OpenSSH client + start ssh-agent.
+Enable-Fido2SshKeys
+
+# Leave ssh-agent on manual startup.
+Enable-Fido2SshKeys -SshAgentStartupType Manual
+```
+
+| Parameter               | Description                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------ |
+| `-SshAgentStartupType`  | `Automatic` (default), `Manual`, or `Disabled` — startup mode for `ssh-agent`.       |
+| `-SkipOpenSsh`          | Don't touch the OpenSSH Client capability (use when OpenSSH is provided elsewhere).  |
+| `-SkipAgent`            | Don't configure or start the `ssh-agent` service.                                    |
+| `-WhatIf` / `-Confirm`  | Standard `SupportsShouldProcess`.                                                    |
 
 ### `New-Fido2SshKey`
 
