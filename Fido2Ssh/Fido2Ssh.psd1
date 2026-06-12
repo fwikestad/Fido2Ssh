@@ -22,6 +22,7 @@
         PSData = @{
             Tags       = @('FIDO2', 'Passkey', 'SSH', 'Azure', 'YubiKey')
             ProjectUri = 'https://github.com/fwikestad/Auth'
+            LicenseUri = 'https://github.com/fwikestad/Auth/blob/main/LICENSE'
         }
     }
 }
