@@ -1,16 +1,16 @@
 @{
-    RootModule        = 'YubikeyFido2Ssh.psm1'
+    RootModule        = 'Fido2Ssh.psm1'
     ModuleVersion     = '0.1.0'
     GUID              = 'f3c2b1a4-6d7e-4b8a-9c3f-1a2b3c4d5e6f'
     Author            = 'fwikestad'
-    Description       = 'Helpers for downloading and publishing YubiKey FIDO2 resident SSH keys from Windows.'
+    Description       = 'Helpers for importing and publishing resident FIDO2 SSH keys (YubiKey, other passkey providers) from Windows.'
     PowerShellVersion = '5.1'
 
     FunctionsToExport = @(
-        'Install-YubikeyFidoSshKey',
-        'New-YubikeyFidoSshKey',
-        'Publish-YubikeyFidoSshKey',
-        'Publish-YubikeyFidoSshKeyToAzureVM'
+        'Import-Fido2SshKey',
+        'New-Fido2SshKey',
+        'Publish-Fido2SshKey',
+        'Publish-Fido2SshKeyToAzureVM'
     )
     CmdletsToExport   = @()
     VariablesToExport = @()
@@ -18,7 +18,7 @@
 
     PrivateData = @{
         PSData = @{
-            Tags       = @('YubiKey', 'FIDO2', 'SSH', 'Azure')
+            Tags       = @('FIDO2', 'Passkey', 'SSH', 'Azure', 'YubiKey')
             ProjectUri = 'https://github.com/fwikestad/Auth'
         }
     }

@@ -1,4 +1,4 @@
-function Publish-YubikeyFidoSshKeyToAzureVM {
+function Publish-Fido2SshKeyToAzureVM {
     <#
     .SYNOPSIS
         Publishes a FIDO2 SSH public key to an Azure VM via Run Command.
@@ -32,7 +32,7 @@ function Publish-YubikeyFidoSshKeyToAzureVM {
         Append unconditionally (skip dedupe).
 
     .EXAMPLE
-        Publish-YubikeyFidoSshKeyToAzureVM -ResourceGroupName my-rg -VMName my-vm
+        Publish-Fido2SshKeyToAzureVM -ResourceGroupName my-rg -VMName my-vm
     #>
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
     param(
@@ -50,7 +50,7 @@ function Publish-YubikeyFidoSshKeyToAzureVM {
     }
 
     if ([string]::IsNullOrWhiteSpace($PublicKeyPath)) {
-        $PublicKeyPath = Resolve-YubikeyFidoPublicKeyPath -SshDirectory (Join-Path $env:USERPROFILE ".ssh")
+        $PublicKeyPath = Resolve-Fido2PublicKeyPath -SshDirectory (Join-Path $env:USERPROFILE ".ssh")
     }
     if (-not (Test-Path -LiteralPath $PublicKeyPath -PathType Leaf)) {
         throw "Public key file was not found: $PublicKeyPath"

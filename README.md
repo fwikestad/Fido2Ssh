@@ -1,44 +1,46 @@
-# YubikeyFido2Ssh
+# Fido2Ssh
 
-PowerShell module for using **resident FIDO2 SSH keys** stored on a YubiKey
-(or other FIDO2 authenticator) from Windows. Covers the full lifecycle:
-download the keys onto a workstation, then publish the matching public key to
-a Linux host either over SSH or via the Azure VM Run Command channel.
+PowerShell module for using **resident FIDO2 SSH keys** stored on a passkey
+provider (YubiKey, other FIDO2 authenticators) from Windows. Covers the full
+lifecycle: create the keys on the authenticator, import them onto a
+workstation, then publish the matching public key to a Linux host either over
+SSH or via the Azure VM Run Command channel.
 
 Targets Windows PowerShell 5.1 and PowerShell 7+.
 
 ## Prerequisites
 
 - Windows with the OpenSSH Client feature installed (`ssh`, `ssh-keygen`, `ssh-add`).
-- A FIDO2 authenticator (e.g. YubiKey 5) with one or more **resident**
-  (`-O resident`) SSH keys already generated on it.
-- For `Publish-YubikeyFidoSshKeyToAzureVM`: Azure CLI (`az`) signed in to a
-  tenant / subscription that has permission to run
+- A FIDO2 authenticator (e.g. YubiKey 5)
+- For `Publish-Fido2SshKeyToAzureVM`: Azure CLI (`az`) signed in to a tenant /
+  subscription that has permission to run
   `Microsoft.Compute/virtualMachines/runCommand/action` on the target VM.
 
 ## Installation
 
 ```powershell
 # From the repo root — load the module for the current session.
-Import-Module .\YubikeyFido2Ssh\YubikeyFido2Ssh.psd1
+Import-Module .\Fido2Ssh\Fido2Ssh.psd1
 
 # Or install permanently for the current user.
-Copy-Item -Recurse .\YubikeyFido2Ssh "$HOME\Documents\PowerShell\Modules\"
-Import-Module YubikeyFido2Ssh
+Copy-Item -Recurse .\Fido2Ssh "$HOME\Documents\PowerShell\Modules\"
+Import-Module Fido2Ssh
 ```
 
 ## Layout
 
 ```
-YubikeyFido2Ssh/
-  YubikeyFido2Ssh.psd1                  # module manifest
-  YubikeyFido2Ssh.psm1                  # loader: dot-sources Private/, then Public/
+Fido2Ssh/
+  Fido2Ssh.psd1                       # module manifest
+  Fido2Ssh.psm1                       # loader: dot-sources Private/, then Public/
   Private/
-    Resolve-YubikeyFidoPublicKeyPath.ps1  # shared helper, not exported
+    Get-Fido2CanonicalName.ps1        # shared helpers (thumbprint + canonical filename)
+    Resolve-Fido2PublicKeyPath.ps1    # shared helper, not exported
   Public/
-    Install-YubikeyFidoSshKey.ps1
-    Publish-YubikeyFidoSshKey.ps1
-    Publish-YubikeyFidoSshKeyToAzureVM.ps1
+    Import-Fido2SshKey.ps1
+    New-Fido2SshKey.ps1
+    Publish-Fido2SshKey.ps1
+    Publish-Fido2SshKeyToAzureVM.ps1
 ```
 
 Files under `Public/` are exported. Files under `Private/` are available to all
@@ -46,18 +48,44 @@ public functions but not to module consumers.
 
 ## Commands
 
-### `Install-YubikeyFidoSshKey`
+### `New-Fido2SshKey`
 
-Downloads every resident FIDO2 SSH key from a connected authenticator into
-`%USERPROFILE%\.ssh` (or a directory you specify) and optionally loads each
-private key into `ssh-agent`.
+Generates a new resident FIDO2 SSH credential on a connected authenticator and
+installs it into `%USERPROFILE%\.ssh` (or a directory you specify) using the
+canonical filename layout the rest of this module expects.
 
 ```powershell
-# Default: install to %USERPROFILE%\.ssh and load into ssh-agent.
-Install-YubikeyFidoSshKey
+# Interactive: prompts for e-mail and label, requires PIN + touch.
+New-Fido2SshKey
+
+# Non-interactive, touch-only (no PIN), with a custom label.
+New-Fido2SshKey -Email me@example.com -Label work-laptop -NoPin
+```
+
+| Parameter       | Description                                                                                  |
+| --------------- | -------------------------------------------------------------------------------------------- |
+| `-Email`        | Value placed in the public-key comment field. Prompted for when not supplied.                |
+| `-Label`        | Label embedded in the FIDO application string (`ssh:<label>`) and the installed filename.    |
+| `-SshDirectory` | Destination folder. Defaults to `%USERPROFILE%\.ssh`.                                        |
+| `-KeyType`      | `ed25519-sk` (default) or `ecdsa-sk` for older authenticators.                               |
+| `-NoPin`        | Omit the default `-O verify-required` constraint (touch-only credential).                    |
+| `-Force`        | Overwrite an existing key file with the same name.                                           |
+| `-SkipAgent`    | Don’t try to add the new private key to `ssh-agent`.                                         |
+| `-WhatIf`       | Standard `SupportsShouldProcess` dry-run.                                                    |
+
+### `Import-Fido2SshKey`
+
+Extracts every resident FIDO2 SSH key from a connected authenticator into
+`%USERPROFILE%\.ssh` (or a directory you specify) and optionally loads each
+private key into `ssh-agent`. Filenames match the layout `New-Fido2SshKey`
+produces, so re-running this cmdlet doesn’t create duplicates.
+
+```powershell
+# Default: import to %USERPROFILE%\.ssh and load into ssh-agent.
+Import-Fido2SshKey
 
 # Custom location, overwrite existing files, skip ssh-agent loading.
-Install-YubikeyFidoSshKey -SshDirectory C:\keys -Force -SkipAgent
+Import-Fido2SshKey -SshDirectory C:\keys -Force -SkipAgent
 ```
 
 | Parameter       | Description                                                                 |
@@ -67,23 +95,23 @@ Install-YubikeyFidoSshKey -SshDirectory C:\keys -Force -SkipAgent
 | `-SkipAgent`    | Don't start `ssh-agent` and don't run `ssh-add`.                            |
 | `-WhatIf`       | Standard `SupportsShouldProcess` dry-run.                                   |
 
-Touch the YubiKey when prompted by `ssh-keygen -K`.
+Touch the authenticator when prompted by `ssh-keygen -K`.
 
-### `Publish-YubikeyFidoSshKey`
+### `Publish-Fido2SshKey`
 
 Publishes a FIDO2 public key (`*.pub`) to a Linux host's
 `~/.ssh/authorized_keys` over **plain SSH**.
 
 ```powershell
 # Append to authorized_keys, deduping if the key is already present (default).
-Publish-YubikeyFidoSshKey -HostName server.example.com -UserName azureuser
+Publish-Fido2SshKey -HostName server.example.com -UserName azureuser
 
 # Pick a specific key file and a non-default SSH port.
-Publish-YubikeyFidoSshKey -HostName 10.0.0.4 -UserName ubuntu -Port 2222 `
-    -PublicKeyPath C:\Users\me\.ssh\id_ed25519_sk_rk_yubi5.pub
+Publish-Fido2SshKey -HostName 10.0.0.4 -UserName ubuntu -Port 2222 `
+    -PublicKeyPath C:\Users\me\.ssh\id_ed25519_sk_rk_work-laptop_abc123def456.pub
 
 # Replace authorized_keys entirely (lockout risk; be careful).
-Publish-YubikeyFidoSshKey -HostName server -UserName azureuser -WipeExistingKeys
+Publish-Fido2SshKey -HostName server -UserName azureuser -WipeExistingKeys
 ```
 
 | Parameter              | Description                                                                                                   |
@@ -98,7 +126,7 @@ Publish-YubikeyFidoSshKey -HostName server -UserName azureuser -WipeExistingKeys
 
 You will need an existing password or SSH login to the target.
 
-### `Publish-YubikeyFidoSshKeyToAzureVM`
+### `Publish-Fido2SshKeyToAzureVM`
 
 Same idea as above, but publishes the key via **Azure VM Run Command**, so
 you don't need any inbound SSH connectivity to the VM — only Azure RBAC on
@@ -106,10 +134,10 @@ the VM resource.
 
 ```powershell
 # Default: dedupe-append into ~azureuser/.ssh/authorized_keys on the VM.
-Publish-YubikeyFidoSshKeyToAzureVM -ResourceGroupName my-rg -VMName my-vm
+Publish-Fido2SshKeyToAzureVM -ResourceGroupName my-rg -VMName my-vm
 
 # Different OS user, explicit subscription, replace existing keys.
-Publish-YubikeyFidoSshKeyToAzureVM -ResourceGroupName my-rg -VMName my-vm `
+Publish-Fido2SshKeyToAzureVM -ResourceGroupName my-rg -VMName my-vm `
     -UserName ubuntu -SubscriptionId 00000000-0000-0000-0000-000000000000 `
     -WipeExistingKeys
 ```
@@ -128,32 +156,40 @@ Publish-YubikeyFidoSshKeyToAzureVM -ResourceGroupName my-rg -VMName my-vm `
 See [Notes on the Azure variant](#notes-on-the-azure-variant) below for the
 quirks this function works around.
 
-### `Resolve-YubikeyFidoPublicKeyPath` *(private)*
+### Private helpers
 
-Shared helper used by both `Publish-*` functions to locate and (when needed)
-prompt for the correct `.pub` file in `%USERPROFILE%\.ssh`. Not exported.
+- `Get-Fido2KeyThumbprint` / `Get-Fido2CanonicalName` — derive the short
+  thumbprint and canonical `id_<keytype>_sk_rk[_<label>]_<thumbprint>`
+  filename used by `New-Fido2SshKey` and `Import-Fido2SshKey`.
+- `Resolve-Fido2PublicKeyPath` — used by both `Publish-*` functions to locate
+  and (when needed) prompt for the correct `.pub` file in `%USERPROFILE%\.ssh`.
+
+Not exported.
 
 ## Typical workflow
 
 ```powershell
-Import-Module .\YubikeyFido2Ssh\YubikeyFido2Ssh.psd1
+Import-Module .\Fido2Ssh\Fido2Ssh.psd1
 
-# 1. Pull resident keys off the YubiKey onto this PC.
-Install-YubikeyFidoSshKey
+# 1a. Create a brand-new resident FIDO2 SSH credential on the authenticator.
+New-Fido2SshKey -Email me@example.com -Label work-laptop
+
+# 1b. …or import credentials that already exist on the authenticator.
+Import-Fido2SshKey
 
 # 2a. Push the public key to a reachable Linux host over SSH.
-Publish-YubikeyFidoSshKey -HostName server.example.com -UserName azureuser
+Publish-Fido2SshKey -HostName server.example.com -UserName azureuser
 
-# 2b. ...or push it to an Azure VM without any inbound SSH.
-Publish-YubikeyFidoSshKeyToAzureVM -ResourceGroupName my-rg -VMName my-vm
+# 2b. …or push it to an Azure VM without any inbound SSH.
+Publish-Fido2SshKeyToAzureVM -ResourceGroupName my-rg -VMName my-vm
 
-# 3. Log in using the YubiKey-backed key (touch when prompted).
+# 3. Log in using the FIDO2-backed key (touch when prompted).
 ssh azureuser@server.example.com
 ```
 
 ## Notes on the Azure variant
 
-`Publish-YubikeyFidoSshKeyToAzureVM` works around several documented pitfalls
+`Publish-Fido2SshKeyToAzureVM` works around several documented pitfalls
 of `az vm run-command invoke`:
 
 - **`#!/bin/bash` shebang** — `RunShellScript` runs under `/bin/sh` by

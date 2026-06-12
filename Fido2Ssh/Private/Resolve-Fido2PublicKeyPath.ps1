@@ -1,4 +1,4 @@
-function Resolve-YubikeyFidoPublicKeyPath {
+function Resolve-Fido2PublicKeyPath {
     <#
     .SYNOPSIS
         Finds a resident FIDO2 SSH public key file in the given directory.
@@ -35,7 +35,7 @@ function Resolve-YubikeyFidoPublicKeyPath {
         [PSCustomObject]@{ FullName = $_.FullName; DisplayValue = $displayValue }
     }
 
-    Write-Host "Multiple YubiKey FIDO2 public keys were found. Select one:"
+    Write-Host "Multiple FIDO2 public keys were found. Select one:"
     for ($i = 0; $i -lt $keys.Count; $i++) {
         Write-Host ("[{0}] {1}" -f ($i + 1), $keys[$i].DisplayValue)
     }

@@ -1,31 +1,34 @@
-function New-YubikeyFidoSshKey {
+function New-Fido2SshKey {
     <#
     .SYNOPSIS
-        Generates a resident FIDO2 SSH key on a connected YubiKey.
+        Generates a resident FIDO2 SSH key on a connected authenticator.
 
     .DESCRIPTION
         Prompts for an e-mail (used as the key comment) and a label
         (used in the FIDO2 application string), then runs `ssh-keygen`
         to create a new resident Security Key credential on the
-        YubiKey. The credential is then installed into `-SshDirectory`
-        (default `%USERPROFILE%\.ssh`) by delegating to
-        `Install-YubikeyFidoSshKey`, which extracts every resident
-        credential from the authenticator with the canonical filename
-        layout the rest of this module expects:
+        authenticator (YubiKey or other passkey provider). The
+        resulting key files are renamed into the canonical filename
+        layout that the rest of this module expects and moved into
+        `-SshDirectory` (default `%USERPROFILE%\.ssh`):
 
-            id_ed25519_sk_rk_<label>
-            id_ed25519_sk_rk_<label>.pub
+            id_<keytype>_sk_rk_<label>_<thumbprint>
+            id_<keytype>_sk_rk_<label>_<thumbprint>.pub
+
+        The thumbprint is a short slice of the key's SHA256
+        fingerprint, so multiple credentials with the same label
+        won't collide.
 
         By default the credential is created with `-O verify-required`,
-        so the YubiKey will require its FIDO2 PIN (in addition to a
-        touch) every time the key is used. Pass `-NoPin` to omit that
+        so the authenticator will require its FIDO2 PIN (in addition to
+        a touch) every time the key is used. Pass `-NoPin` to omit that
         constraint and require only a touch.
 
         The private key file is created with an empty passphrase so
         it can be loaded by `ssh-agent` and used by the publish
         cmdlets without further prompting. The actual private key
-        material stays on the YubiKey; the file on disk is only a
-        handle to the resident credential.
+        material stays on the authenticator; the file on disk is only
+        a handle to the resident credential.
 
     .PARAMETER Email
         Value placed in the public-key comment field. Prompted for
@@ -33,9 +36,10 @@ function New-YubikeyFidoSshKey {
 
     .PARAMETER Label
         Short label embedded in the FIDO application string
-        (`ssh:<label>`) and therefore in the installed filename.
-        Must only contain letters, digits, '.', '_' or '-'.
-        Prompted for when not supplied.
+        (`ssh:<label>`) and in the installed filename. Must only
+        contain letters, digits, '.' or '-' (no underscores, since
+        the filename parser uses '_' as a token boundary). Prompted
+        for when not supplied.
 
     .PARAMETER SshDirectory
         Destination folder. Defaults to `%USERPROFILE%\.ssh`.
@@ -47,30 +51,28 @@ function New-YubikeyFidoSshKey {
 
     .PARAMETER NoPin
         Omit the default `-O verify-required` constraint so the
-        YubiKey only requires a touch (no FIDO2 PIN) when the key
-        is used.
+        authenticator only requires a touch (no FIDO2 PIN) when the
+        key is used.
 
     .PARAMETER Force
-        Forwarded to `Install-YubikeyFidoSshKey` to overwrite
-        previously extracted resident-key files of the same name.
+        Overwrite an existing key file with the same name.
 
     .PARAMETER SkipAgent
-        Forwarded to `Install-YubikeyFidoSshKey` to skip loading
-        installed keys into `ssh-agent`.
+        Don't try to add the new private key to `ssh-agent`.
 
     .EXAMPLE
-        New-YubikeyFidoSshKey
+        New-Fido2SshKey
 
         Prompts for e-mail and label, generates a PIN-protected
-        resident Ed25519 FIDO2 SSH key on the YubiKey, then
+        resident Ed25519 FIDO2 SSH key on the authenticator, then
         installs it into the user's .ssh directory.
 
     .EXAMPLE
-        New-YubikeyFidoSshKey -Email me@example.com -Label work-laptop -NoPin
+        New-Fido2SshKey -Email me@example.com -Label work-laptop -NoPin
 
         Generates a touch-only credential with application
         `ssh:work-laptop` and installs it as
-        ~/.ssh/id_ed25519_sk_rk_work-laptop(.pub).
+        ~/.ssh/id_ed25519_sk_rk_work-laptop_<thumbprint>(.pub).
     #>
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
@@ -103,55 +105,89 @@ function New-YubikeyFidoSshKey {
         $Label = Read-Host "Key label (used in the FIDO application string and the installed filename)"
     }
     $Label = $Label.Trim()
-    if ($Label -notmatch '^[A-Za-z0-9._-]+$') {
-        throw "Label may only contain letters, digits, '.', '_' or '-'."
+    if ($Label -notmatch '^[A-Za-z0-9.-]+$') {
+        throw "Label may only contain letters, digits, '.' or '-' (no underscores)."
     }
 
     $application  = "ssh:$Label"
     $sshKeygenExe = (Get-Command ssh-keygen).Source
     $verifyOption = if ($NoPin) { '' } else { '-O verify-required ' }
 
-    # Generate the resident credential on the YubiKey. ssh-keygen also
-    # writes a local key file; we point it at a throwaway temp file
-    # because Install-YubikeyFidoSshKey will re-extract the credential
-    # into $SshDirectory under the canonical filename.
-    $tempRoot    = Join-Path ([System.IO.Path]::GetTempPath()) ("yubikey-fido-new-" + [System.Guid]::NewGuid().ToString("N"))
+    if (-not (Test-Path -LiteralPath $SshDirectory)) {
+        New-Item -ItemType Directory -Path $SshDirectory | Out-Null
+    }
+
+    # Generate the resident credential on the authenticator into a
+    # temp directory; we then rename/move the produced files into
+    # $SshDirectory under the canonical layout.
+    $tempRoot    = Join-Path ([System.IO.Path]::GetTempPath()) ("fido2-ssh-new-" + [System.Guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $tempRoot | Out-Null
     $tempKeyPath = Join-Path $tempRoot "newkey"
+    $tempPubPath = "$tempKeyPath.pub"
 
     try {
         # Build a single command line and run it via cmd.exe so the
         # empty-passphrase argument (-N "") is preserved verbatim.
         # Windows PowerShell 5.1's native-call operator drops bare
         # empty-string arguments, which would cause ssh-keygen to treat
-        # "-f" as the passphrase value.
-        $cmdLine = '"{0}" -t {1} -O resident {2}-O "application={3}" -C "{4}" -N "" -f "{5}"' -f `
+        # "-f" as the passphrase value. `-q` silences the chatty
+        # "Generating public/private..." / fingerprint / randomart
+        # output without hiding the FIDO2 PIN prompt.
+        $cmdLine = '"{0}" -q -t {1} -O resident {2}-O "application={3}" -C "{4}" -N "" -f "{5}"' -f `
             $sshKeygenExe, $KeyType, $verifyOption, $application, $Email, $tempKeyPath
 
         Write-Verbose "ssh-keygen command: $cmdLine"
 
         $shouldProcessDesc = "Generate resident FIDO2 SSH key ($KeyType, application=$application" + $(if ($NoPin) { ', touch-only' } else { ', PIN+touch' }) + ")"
-        if ($PSCmdlet.ShouldProcess("YubiKey", $shouldProcessDesc)) {
-            if ($NoPin) {
-                Write-Host "Touch your YubiKey when it starts blinking."
+        if (-not $PSCmdlet.ShouldProcess("authenticator", $shouldProcessDesc)) {
+            return
+        }
+
+        if ($NoPin) {
+            Write-Host "Touch your authenticator when it starts blinking."
+        }
+        else {
+            Write-Host "Enter your FIDO2 PIN when prompted, then touch your authenticator when it starts blinking."
+        }
+        & cmd.exe /c "`"$cmdLine`""
+        if ($LASTEXITCODE -ne 0) {
+            throw "ssh-keygen failed with exit code $LASTEXITCODE."
+        }
+        if (-not (Test-Path -LiteralPath $tempPubPath)) {
+            throw "ssh-keygen did not produce expected public key file: $tempPubPath"
+        }
+
+        # Derive a short thumbprint from the SHA256 fingerprint so
+        # multiple credentials with the same label don't collide, and
+        # so that Import-Fido2SshKey can land an extracted copy of
+        # this same credential at the exact same filename.
+        $thumbprint  = Get-Fido2KeyThumbprint -PublicKeyPath $tempPubPath
+        $finalName   = Get-Fido2CanonicalName -KeyType $KeyType -Label $Label -Thumbprint $thumbprint
+        $destKeyPath = Join-Path $SshDirectory $finalName
+        $destPubPath = "$destKeyPath.pub"
+
+        foreach ($existing in @($destKeyPath, $destPubPath)) {
+            if ((Test-Path -LiteralPath $existing) -and -not $Force) {
+                throw "Destination already exists: $existing. Re-run with -Force to overwrite."
             }
-            else {
-                Write-Host "Enter your YubiKey FIDO2 PIN when prompted, then touch the YubiKey when it starts blinking."
-            }
-            & cmd.exe /c "`"$cmdLine`""
+        }
+
+        Move-Item -LiteralPath $tempKeyPath -Destination $destKeyPath -Force:$Force
+        Move-Item -LiteralPath $tempPubPath -Destination $destPubPath -Force:$Force
+
+        Write-Host ""
+        Write-Host "FIDO2 SSH key installed:"
+        Write-Host "  Private: $destKeyPath"
+        Write-Host "  Public:  $destPubPath"
+
+        if (-not $SkipAgent -and (Get-Command ssh-add -ErrorAction SilentlyContinue)) {
+            & ssh-add $destKeyPath
             if ($LASTEXITCODE -ne 0) {
-                throw "ssh-keygen failed with exit code $LASTEXITCODE."
+                Write-Warning "ssh-add failed for $destKeyPath. The key is still installed in $SshDirectory."
             }
         }
     }
     finally {
         Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
-
-    # Install the freshly created resident credential (and re-extract
-    # any pre-existing ones) into $SshDirectory using the canonical
-    # filename layout that the publish cmdlets expect. Suppress
-    # Install's informational Write-Host output; warnings (e.g.
-    # "skipping existing file") and errors still surface.
-    Install-YubikeyFidoSshKey -SshDirectory $SshDirectory -Force:$Force 6 | Out-Null
 }

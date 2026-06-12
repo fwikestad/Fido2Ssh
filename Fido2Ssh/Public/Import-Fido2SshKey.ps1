@@ -1,13 +1,22 @@
-function Install-YubikeyFidoSshKey {
+function Import-Fido2SshKey {
     <#
     .SYNOPSIS
-        Downloads resident FIDO2 SSH keys from a YubiKey into the local SSH directory.
+        Imports resident FIDO2 SSH keys from a connected authenticator into the local SSH directory.
 
     .DESCRIPTION
         Runs `ssh-keygen -K` to extract every resident SSH key from a connected
-        FIDO2 authenticator and moves the resulting key files into `-SshDirectory`
-        (default `%USERPROFILE%\.ssh`). Optionally loads the private keys into
-        `ssh-agent`.
+        FIDO2 authenticator (YubiKey or other passkey provider) and installs
+        them into `-SshDirectory` (default `%USERPROFILE%\.ssh`) using the same
+        canonical filename layout that `New-Fido2SshKey` produces:
+
+            id_<keytype>_sk_rk[_<label>]_<thumbprint>
+
+        Because the thumbprint is derived from the public key fingerprint, a
+        credential extracted here lands at the exact same filename as if it had
+        been created by `New-Fido2SshKey`, so re-running this cmdlet does not
+        produce duplicate files, duplicate `ssh-agent` entries, or duplicate
+        selection prompts in the publish cmdlets. Optionally loads the private
+        keys into `ssh-agent`.
 
     .PARAMETER SshDirectory
         Destination folder. Defaults to `%USERPROFILE%\.ssh`.
@@ -19,10 +28,10 @@ function Install-YubikeyFidoSshKey {
         Don't start `ssh-agent` and don't run `ssh-add`.
 
     .EXAMPLE
-        Install-YubikeyFidoSshKey
+        Import-Fido2SshKey
 
     .EXAMPLE
-        Install-YubikeyFidoSshKey -SshDirectory C:\keys -Force -SkipAgent
+        Import-Fido2SshKey -SshDirectory C:\keys -Force -SkipAgent
     #>
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
@@ -39,7 +48,7 @@ function Install-YubikeyFidoSshKey {
         New-Item -ItemType Directory -Path $SshDirectory | Out-Null
     }
 
-    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("yubikey-fido-" + [System.Guid]::NewGuid().ToString("N"))
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("fido2-ssh-import-" + [System.Guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $tempRoot | Out-Null
 
     $installedPrivateKeys = @()
@@ -48,27 +57,111 @@ function Install-YubikeyFidoSshKey {
     try {
         Push-Location $tempRoot
 
-        Write-Host "Touch your YubiKey if prompted. Downloading resident FIDO SSH keys..."
-        & ssh-keygen -K -N ''
+        Write-Host "Touch your authenticator if prompted. Downloading resident FIDO2 SSH keys..."
+        # `-q` silences ssh-keygen's per-key "Saved..." chatter while
+        # keeping the FIDO2 PIN prompt (which is written to stdout on
+        # Windows) visible to the user.
+        & ssh-keygen -q -K -N ''
         if ($LASTEXITCODE -ne 0) {
             throw "ssh-keygen -K failed with exit code $LASTEXITCODE."
         }
 
         $extracted = @(Get-ChildItem -Path $tempRoot -File)
-        if (-not ($extracted | Where-Object { $_.Extension -ne ".pub" })) {
-            throw "No resident FIDO SSH keys were downloaded from the authenticator."
+        $extractedPubs = @($extracted | Where-Object { $_.Extension -eq ".pub" })
+        if ($extractedPubs.Count -eq 0) {
+            throw "No resident FIDO2 SSH keys were extracted from the authenticator."
         }
 
-        foreach ($file in $extracted) {
-            $destination = Join-Path $SshDirectory $file.Name
-            if ((Test-Path -LiteralPath $destination) -and -not $Force) {
-                Write-Verbose "Skipping existing file: $destination. Re-run with -Force to overwrite it."
-                $skippedFiles += $destination
+        # Build a fingerprint -> path map of every FIDO2 SSH key that's
+        # already in $SshDirectory. We dedupe by SHA256 fingerprint, not
+        # filename, because OpenSSH's ssh-keygen -K names extracted files
+        # using the credential's application *and* user_id (a long hex
+        # blob), while New-Fido2SshKey produces a shorter canonical name
+        # without the user_id. Filename-only dedupe would therefore miss
+        # the match and re-install the same credential under a second
+        # filename.
+        $existingFingerprints = @{}
+        foreach ($existingPub in (Get-ChildItem -Path $SshDirectory -File -Filter "id_*_sk_rk*.pub" -ErrorAction SilentlyContinue)) {
+            try {
+                $existingFingerprints[(Get-Fido2KeyFingerprint -PublicKeyPath $existingPub.FullName)] = $existingPub.FullName
+            }
+            catch {
+                Write-Verbose "Skipping unreadable existing key $($existingPub.FullName): $_"
+            }
+        }
+
+        # ssh-keygen -K names files as `id_<keytype>_sk_rk_<application>`,
+        # optionally followed by `_<user_id_hex>` (typically 32-64 hex
+        # chars) on recent OpenSSH releases. We strip that trailing hex
+        # blob so the on-disk label matches the one New-Fido2SshKey would
+        # have used, then re-derive the canonical `_<thumbprint>` form.
+        foreach ($pub in $extractedPubs) {
+            $extractedBase = [System.IO.Path]::GetFileNameWithoutExtension($pub.Name)
+            $extractedPriv = Join-Path $tempRoot $extractedBase
+
+            if (-not (Test-Path -LiteralPath $extractedPriv)) {
+                Write-Warning "Public key $($pub.Name) had no matching private key file in ssh-keygen output. Skipping."
                 continue
             }
-            if ($PSCmdlet.ShouldProcess($destination, "Install extracted key file")) {
-                Move-Item -LiteralPath $file.FullName -Destination $destination -Force:$Force
-                if ($file.Extension -ne ".pub") { $installedPrivateKeys += $destination }
+
+            $fingerprint = Get-Fido2KeyFingerprint -PublicKeyPath $pub.FullName
+            if ($existingFingerprints.ContainsKey($fingerprint) -and -not $Force) {
+                Write-Verbose "Skipping $($pub.Name): same credential is already installed as $($existingFingerprints[$fingerprint])."
+                $skippedFiles += $existingFingerprints[$fingerprint]
+                continue
+            }
+
+            # Map ssh-keygen's `id_<typeSuffix>_rk[_<label>[_<user_id_hex>]]`
+            # layout back to KeyType + Label so the shared canonical-name
+            # helper can rebuild the filename the rest of the module expects.
+            if ($extractedBase -notmatch '^id_(?<typeSuffix>ed25519_sk|ecdsa_sk)_rk(?:_(?<label>.+))?$') {
+                Write-Warning "Extracted file $($pub.Name) does not match the expected `id_<keytype>_sk_rk...` layout. Installing verbatim."
+                $destPub  = Join-Path $SshDirectory $pub.Name
+                $destPriv = Join-Path $SshDirectory $extractedBase
+                if ((Test-Path -LiteralPath $destPriv) -and -not $Force) {
+                    $skippedFiles += $destPriv
+                    continue
+                }
+                if ($PSCmdlet.ShouldProcess($destPriv, "Install extracted key file")) {
+                    Move-Item -LiteralPath $extractedPriv -Destination $destPriv -Force:$Force
+                    Move-Item -LiteralPath $pub.FullName  -Destination $destPub  -Force:$Force
+                    $installedPrivateKeys += $destPriv
+                    $existingFingerprints[$fingerprint] = $destPriv
+                }
+                continue
+            }
+
+            $keyType = switch ($matches['typeSuffix']) {
+                'ed25519_sk' { 'ed25519-sk' }
+                'ecdsa_sk'   { 'ecdsa-sk' }
+            }
+            $label = $matches['label']
+
+            # Strip a trailing `_<hex>` segment (OpenSSH appends the FIDO
+            # user_id as hex when extracting). Anything that ends in `_`
+            # followed by at least 16 hex characters is treated as the
+            # user_id and removed so the canonical filename matches what
+            # New-Fido2SshKey produced for the same credential.
+            if ($label -match '^(?<clean>.+?)_[0-9a-fA-F]{16,}$') {
+                $label = $matches['clean']
+            }
+
+            $thumbprint  = Get-Fido2KeyThumbprint -PublicKeyPath $pub.FullName
+            $canonical   = Get-Fido2CanonicalName -KeyType $keyType -Label $label -Thumbprint $thumbprint
+            $destPrivate = Join-Path $SshDirectory $canonical
+            $destPublic  = "$destPrivate.pub"
+
+            if ((Test-Path -LiteralPath $destPrivate) -and -not $Force) {
+                Write-Verbose "Skipping existing file: $destPrivate. Same credential is already installed; re-run with -Force to overwrite."
+                $skippedFiles += $destPrivate
+                continue
+            }
+
+            if ($PSCmdlet.ShouldProcess($destPrivate, "Install extracted key as canonical filename")) {
+                Move-Item -LiteralPath $extractedPriv -Destination $destPrivate -Force:$Force
+                Move-Item -LiteralPath $pub.FullName  -Destination $destPublic  -Force:$Force
+                $installedPrivateKeys += $destPrivate
+                $existingFingerprints[$fingerprint] = $destPrivate
             }
         }
     }
@@ -107,7 +200,7 @@ function Install-YubikeyFidoSshKey {
         }
     }
 
-    Write-Host "Installed $($installedPrivateKeys.Count) resident FIDO SSH key(s) to $SshDirectory."
+    Write-Host "Imported $($installedPrivateKeys.Count) resident FIDO2 SSH key(s) to $SshDirectory."
     if ($skippedFiles.Count -gt 0) {
         Write-Host "Skipped $($skippedFiles.Count) existing file(s). Re-run with -Force to overwrite them."
     }

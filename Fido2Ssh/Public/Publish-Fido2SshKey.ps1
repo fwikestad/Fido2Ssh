@@ -1,4 +1,4 @@
-function Publish-YubikeyFidoSshKey {
+function Publish-Fido2SshKey {
     <#
     .SYNOPSIS
         Publishes a FIDO2 SSH public key to a Linux host's authorized_keys over SSH.
@@ -29,7 +29,7 @@ function Publish-YubikeyFidoSshKey {
         Append even if the key is already present (skip dedupe check).
 
     .EXAMPLE
-        Publish-YubikeyFidoSshKey -HostName server.example.com -UserName azureuser
+        Publish-Fido2SshKey -HostName server.example.com -UserName azureuser
     #>
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
     param(
@@ -46,7 +46,7 @@ function Publish-YubikeyFidoSshKey {
     }
 
     if ([string]::IsNullOrWhiteSpace($PublicKeyPath)) {
-        $PublicKeyPath = Resolve-YubikeyFidoPublicKeyPath -SshDirectory (Join-Path $env:USERPROFILE ".ssh")
+        $PublicKeyPath = Resolve-Fido2PublicKeyPath -SshDirectory (Join-Path $env:USERPROFILE ".ssh")
     }
     if (-not (Test-Path -LiteralPath $PublicKeyPath -PathType Leaf)) {
         throw "Public key file was not found: $PublicKeyPath"
