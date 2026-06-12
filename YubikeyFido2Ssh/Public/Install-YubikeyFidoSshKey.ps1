@@ -43,6 +43,7 @@ function Install-YubikeyFidoSshKey {
     New-Item -ItemType Directory -Path $tempRoot | Out-Null
 
     $installedPrivateKeys = @()
+    $skippedFiles         = @()
 
     try {
         Push-Location $tempRoot
@@ -61,7 +62,9 @@ function Install-YubikeyFidoSshKey {
         foreach ($file in $extracted) {
             $destination = Join-Path $SshDirectory $file.Name
             if ((Test-Path -LiteralPath $destination) -and -not $Force) {
-                throw "Destination file already exists: $destination. Re-run with -Force to overwrite it."
+                Write-Verbose "Skipping existing file: $destination. Re-run with -Force to overwrite it."
+                $skippedFiles += $destination
+                continue
             }
             if ($PSCmdlet.ShouldProcess($destination, "Install extracted key file")) {
                 Move-Item -LiteralPath $file.FullName -Destination $destination -Force:$Force
@@ -105,5 +108,8 @@ function Install-YubikeyFidoSshKey {
     }
 
     Write-Host "Installed $($installedPrivateKeys.Count) resident FIDO SSH key(s) to $SshDirectory."
+    if ($skippedFiles.Count -gt 0) {
+        Write-Host "Skipped $($skippedFiles.Count) existing file(s). Re-run with -Force to overwrite them."
+    }
     Write-Host "Use the corresponding .pub file(s) from $SshDirectory on remote hosts."
 }

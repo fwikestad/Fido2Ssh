@@ -8,6 +8,7 @@
 
     FunctionsToExport = @(
         'Install-YubikeyFidoSshKey',
+        'New-YubikeyFidoSshKey',
         'Publish-YubikeyFidoSshKey',
         'Publish-YubikeyFidoSshKeyToAzureVM'
     )
