@@ -1,9 +1,49 @@
 $ErrorActionPreference = 'Stop'
 
+# Install Yubico PIV Tool if not already installed
+Write-Host "Checking Yubico PIV Tool installation..."
+$yubicoInstalled = $false
+$yubicoPaths = @(
+    "C:\Program Files\Yubico\Yubico PIV Tool\bin\libykcs11.dll",
+    "C:\Program Files (x86)\Yubico\Yubico PIV Tool\bin\libykcs11.dll"
+)
+
+foreach ($path in $yubicoPaths) {
+    if (Test-Path -LiteralPath $path) {
+        $yubicoInstalled = $true
+        Write-Host "Found Yubico PIV Tool at: $path"
+        break
+    }
+}
+
+if (-not $yubicoInstalled) {
+    Write-Host "Yubico PIV Tool not found. Attempting to install..."
+    
+    # Try Chocolatey first
+    $chocoPath = Get-Command choco -ErrorAction SilentlyContinue
+    if ($chocoPath) {
+        Write-Host "Installing via Chocolatey..."
+        & choco install yubico-piv-tool -y
+        if ($LASTEXITCODE -eq 0) {
+            $yubicoInstalled = $true
+            Write-Host "Yubico PIV Tool installed successfully"
+        } else {
+            Write-Warning "Chocolatey installation failed with exit code $LASTEXITCODE"
+        }
+    } else {
+        Write-Host "Chocolatey not found. Download Yubico PIV Tool from:"
+        Write-Host "https://www.yubico.com/products/yubico-piv-tool/"
+        Write-Host "Or install via: choco install yubico-piv-tool"
+        Write-Host ""
+    }
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $sourceCandidates = @(
     (Join-Path $scriptDir 'libykcs11.dll'),
-    (Join-Path $scriptDir 'libyks11.dll')
+    (Join-Path $scriptDir 'libyks11.dll'),
+    "C:\Program Files\Yubico\Yubico PIV Tool\bin\libykcs11.dll",
+    "C:\Program Files (x86)\Yubico\Yubico PIV Tool\bin\libykcs11.dll"
 )
 
 $sourcePath = $null
