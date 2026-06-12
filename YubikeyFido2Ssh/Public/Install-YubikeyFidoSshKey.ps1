@@ -49,7 +49,7 @@ function Install-YubikeyFidoSshKey {
         Push-Location $tempRoot
 
         Write-Host "Touch your YubiKey if prompted. Downloading resident FIDO SSH keys..."
-        & ssh-keygen -K
+        & ssh-keygen -K -N ''
         if ($LASTEXITCODE -ne 0) {
             throw "ssh-keygen -K failed with exit code $LASTEXITCODE."
         }
