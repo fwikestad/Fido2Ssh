@@ -7,6 +7,7 @@ workstation, then publish the matching public key to a Linux host either over
 SSH or via the Azure VM Run Command channel.
 
 Targets Windows PowerShell 5.1 and PowerShell 7+.
+Most functions schould run on Linux aswell, but it's not tested.
 
 ## Prerequisites
 
@@ -22,10 +23,14 @@ the OpenSSH Client capability and start the `ssh-agent` service in one go.
 ## Installation
 
 ```powershell
-# From the repo root — load the module for the current session.
+# Recommended: install the published module from the PowerShell Gallery.
+Install-Module -Name Fido2Ssh -Scope CurrentUser
+Import-Module Fido2Ssh
+
+# Or load directly from a clone of this repo.
 Import-Module .\Fido2Ssh\Fido2Ssh.psd1
 
-# Or install permanently for the current user.
+# Or copy into the per-user module path.
 Copy-Item -Recurse .\Fido2Ssh "$HOME\Documents\PowerShell\Modules\"
 Import-Module Fido2Ssh
 ```
@@ -280,3 +285,32 @@ of `az vm run-command invoke`:
   another admin user, Azure Bastion, etc.) before using it.
 - Keep `%USERPROFILE%\.ssh` ACL'd to your user only, just like any other
   SSH key directory.
+
+## CI/CD
+
+Two GitHub Actions workflows live under [.github/workflows/](.github/workflows/):
+
+- [ci.yml](.github/workflows/ci.yml) — runs on every push and pull request to
+  `main`. Runs `PSScriptAnalyzer` (errors fail the build, warnings are surfaced)
+  and validates the module manifest / import on Windows and Linux runners.
+- [publish.yml](.github/workflows/publish.yml) — publishes the module to the
+  [PowerShell Gallery](https://www.powershellgallery.com/) when a `v*.*.*` tag
+  is pushed, or on manual `workflow_dispatch` with an explicit version. The
+  workflow stamps the resolved version into `Fido2Ssh.psd1` via
+  `Update-ModuleManifest` before calling `Publish-Module`.
+
+### Releasing a new version
+
+1. Configure a repository secret named `PSGALLERY_API_KEY` in the `PSGallery`
+   GitHub Environment (Settings → Environments). Generate the key at
+   <https://www.powershellgallery.com/account/apikeys> scoped to the
+   `Fido2Ssh` package.
+2. Tag the release commit and push the tag:
+
+   ```powershell
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+
+3. Watch the **Publish to PSGallery** workflow run on the Actions tab. After it
+   succeeds the new version is live on the gallery within a few minutes.
