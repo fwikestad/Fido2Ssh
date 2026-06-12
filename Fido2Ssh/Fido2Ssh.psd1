@@ -10,7 +10,8 @@
         'Import-Fido2SshKey',
         'New-Fido2SshKey',
         'Publish-Fido2SshKey',
-        'Publish-Fido2SshKeyToAzureVM'
+        'Publish-Fido2SshKeyToAzureVM',
+        'Remove-Fido2SshKey'
     )
     CmdletsToExport   = @()
     VariablesToExport = @()

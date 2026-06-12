@@ -41,6 +41,7 @@ Fido2Ssh/
     New-Fido2SshKey.ps1
     Publish-Fido2SshKey.ps1
     Publish-Fido2SshKeyToAzureVM.ps1
+    Remove-Fido2SshKey.ps1
 ```
 
 Files under `Public/` are exported. Files under `Private/` are available to all
@@ -155,6 +156,38 @@ Publish-Fido2SshKeyToAzureVM -ResourceGroupName my-rg -VMName my-vm `
 
 See [Notes on the Azure variant](#notes-on-the-azure-variant) below for the
 quirks this function works around.
+
+### `Remove-Fido2SshKey`
+
+Cleans up resident FIDO2 SSH keys produced by `New-Fido2SshKey` /
+`Import-Fido2SshKey`. Removes the matching `id_*_sk_rk*` file pair from
+`%USERPROFILE%\.ssh` (or a directory you specify) and unloads each key from
+`ssh-agent`. The resident credential on the authenticator itself is not
+touched — use `ykman fido credentials delete` (or the equivalent tool for
+your authenticator) for that.
+
+```powershell
+# Interactive: list every FIDO2 key in ~/.ssh and confirm each removal.
+Remove-Fido2SshKey
+
+# Remove only keys whose label contains "work-laptop", no prompt.
+Remove-Fido2SshKey -Label work-laptop -Force
+
+# Remove one specific key.
+Remove-Fido2SshKey -PublicKeyPath C:\Users\me\.ssh\id_ed25519_sk_rk_pin_abc123def456.pub
+
+# Files only; leave ssh-agent alone.
+Remove-Fido2SshKey -SkipAgent
+```
+
+| Parameter              | Description                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------------ |
+| `-PublicKeyPath`       | Remove this specific `*.pub` and its matching private key only.                            |
+| `-Label`               | Case-insensitive substring filter against the label segment of the canonical filename.     |
+| `-SshDirectory`        | Source folder. Defaults to `%USERPROFILE%\.ssh`.                                           |
+| `-SkipAgent`           | Don't touch `ssh-agent`. Files on disk are still removed.                                  |
+| `-Force`               | Skip the per-key confirmation prompt (still honours `-WhatIf` / explicit `-Confirm`).      |
+| `-WhatIf` / `-Confirm` | Standard `SupportsShouldProcess` (declared `ConfirmImpact = 'High'`).                      |
 
 ### Private helpers
 

@@ -62,6 +62,12 @@ function Remove-Fido2SshKey {
         [switch]$Force
     )
 
+    # -Force suppresses the High-impact confirmation prompt while still
+    # honouring an explicit -Confirm or -WhatIf from the caller.
+    if ($Force -and -not $PSBoundParameters.ContainsKey('Confirm')) {
+        $ConfirmPreference = 'None'
+    }
+
     if (-not (Test-Path -LiteralPath $SshDirectory)) {
         Write-Verbose "SSH directory not found: $SshDirectory. Nothing to remove."
         return
@@ -121,11 +127,7 @@ function Remove-Fido2SshKey {
         $target = if (Test-Path -LiteralPath $privPath) { $privPath } else { $pubPath }
         $action = "Remove FIDO2 SSH key (and ssh-agent entry)"
 
-        if (-not $Force -and -not $PSCmdlet.ShouldProcess($target, $action)) {
-            continue
-        }
-        if ($Force -and -not $PSCmdlet.ShouldProcess($target, $action)) {
-            # -Force still respects -WhatIf.
+        if (-not $PSCmdlet.ShouldProcess($target, $action)) {
             continue
         }
 
