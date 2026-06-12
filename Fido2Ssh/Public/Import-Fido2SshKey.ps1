@@ -63,6 +63,24 @@ function Import-Fido2SshKey {
         # Windows) visible to the user.
         & ssh-keygen -q -K -N ''
         if ($LASTEXITCODE -ne 0) {
+            # On Windows, ssh-keygen -K needs raw USB-HID access to the
+            # authenticator to issue CTAP2 authenticatorCredentialManagement.
+            # That path is reserved for elevated processes; non-elevated
+            # sessions fall through to the Windows WebAuthn API, which does
+            # not expose credential enumeration, and ssh-keygen reports
+            # "Unable to load resident keys: invalid format" followed by
+            # exit code -1. Detect that combo and surface an actionable
+            # error instead of the generic exit-code message.
+            if (-not (Test-Fido2WindowsElevation)) {
+                throw @(
+                    "ssh-keygen -K failed with exit code $LASTEXITCODE."
+                    "On Windows, enumerating resident FIDO2 SSH keys requires an elevated session: "
+                    "Windows reserves direct USB-HID access to the authenticator for administrators, "
+                    "and the non-elevated WebAuthn path does not expose CTAP2 credential enumeration."
+                    "Re-run Import-Fido2SshKey from an elevated PowerShell session, or use "
+                    "New-Fido2SshKey (which works as a standard user) to create new credentials."
+                ) -join ' '
+            }
             throw "ssh-keygen -K failed with exit code $LASTEXITCODE."
         }
 
