@@ -1,0 +1,75 @@
+name: Publish to PSGallery
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Module version to publish (e.g. 0.2.0). Required when run manually.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish Fido2Ssh
+    runs-on: windows-latest
+    environment: PSGallery
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve module version
+        id: version
+        shell: pwsh
+        run: |
+          if ('${{ github.event_name }}' -eq 'push') {
+              $tag = '${{ github.ref_name }}'
+              $version = $tag.TrimStart('v')
+          } else {
+              $version = '${{ inputs.version }}'
+          }
+          if (-not [System.Version]::TryParse($version, [ref]$null)) {
+              throw "Resolved version '$version' is not a valid System.Version."
+          }
+          Write-Host "Module version: $version"
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Stamp manifest version
+        shell: pwsh
+        env:
+          MODULE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $manifestPath = './Fido2Ssh/Fido2Ssh.psd1'
+          Update-ModuleManifest -Path $manifestPath -ModuleVersion $env:MODULE_VERSION
+          Test-ModuleManifest -Path $manifestPath | Format-List Name, Version, Author, ExportedFunctions
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+
+      - name: Run PSScriptAnalyzer (errors fail the build)
+        shell: pwsh
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path ./Fido2Ssh -Recurse -Severity Error
+          if ($results) {
+              $results | Format-Table -AutoSize | Out-String | Write-Host
+              throw "PSScriptAnalyzer found $($results.Count) error(s)."
+          }
+
+      - name: Publish to PowerShell Gallery
+        shell: pwsh
+        env:
+          PSGALLERY_API_KEY: ${{ secrets.PSGALLERY_API_KEY }}
+        run: |
+          if (-not $env:PSGALLERY_API_KEY) {
+              throw 'PSGALLERY_API_KEY secret is not configured for this environment.'
+          }
+          Publish-Module -Path ./Fido2Ssh -NuGetApiKey $env:PSGALLERY_API_KEY -Verbose
