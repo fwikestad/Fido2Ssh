@@ -139,22 +139,25 @@ Publishes a FIDO2 public key (`*.pub`) to a Linux host's
 
 ```powershell
 # Append to authorized_keys, deduping if the key is already present (default).
-Publish-Fido2SshKey -HostName server.example.com -UserName azureuser
+Publish-Fido2SshKey azureuser@server.example.com
+
+# Authenticate the bootstrap connection with an existing private key.
+Publish-Fido2SshKey azureuser@131.123.32.3 -i ~/.ssh/id_rsa
 
 # Pick a specific key file and a non-default SSH port.
-Publish-Fido2SshKey -HostName 10.0.0.4 -UserName ubuntu -Port 2222 `
+Publish-Fido2SshKey ubuntu@10.0.0.4 -Port 2222 `
     -PublicKeyPath C:\Users\me\.ssh\id_ed25519_sk_rk_work-laptop_abc123def456.pub
 
 # Replace authorized_keys entirely (lockout risk; be careful).
-Publish-Fido2SshKey -HostName server -UserName azureuser -WipeExistingKeys
+Publish-Fido2SshKey azureuser@server -WipeExistingKeys
 ```
 
 | Parameter              | Description                                                                                                   |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `-HostName`            | Required. DNS name or IP of the target host.                                                                  |
-| `-UserName`            | Required. Linux user whose `authorized_keys` to update.                                                       |
+| `-Destination`         | Required, positional. SSH-style `<user>@<host>`, e.g. `azureuser@10.0.0.4`.                                   |
 | `-PublicKeyPath`       | Optional. If omitted, scans `%USERPROFILE%\.ssh` for `id_*_sk_rk*.pub` files and prompts when multiple match. |
 | `-Port`                | Optional. SSH port (default `22`).                                                                            |
+| `-IdentityFile` / `-i` | Optional. Existing SSH private key to authenticate the bootstrap connection (`ssh -i`).                       |
 | `-WipeExistingKeys`    | Replace `authorized_keys` with this key only.                                                                 |
 | `-AllowDuplicate`      | Append even if the key is already present (skip dedupe check).                                                |
 | `-WhatIf` / `-Confirm` | Standard `SupportsShouldProcess`.                                                                             |
@@ -245,7 +248,7 @@ New-Fido2SshKey -Email me@example.com -Label work-laptop
 Import-Fido2SshKey
 
 # 2a. Push the public key to a reachable Linux host over SSH.
-Publish-Fido2SshKey -HostName server.example.com -UserName azureuser
+Publish-Fido2SshKey azureuser@server.example.com
 
 # 2b. …or push it to an Azure VM without any inbound SSH.
 Publish-Fido2SshKeyToAzureVM -ResourceGroupName my-rg -VMName my-vm
