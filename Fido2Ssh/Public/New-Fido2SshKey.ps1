@@ -42,7 +42,8 @@ function New-Fido2SshKey {
         for when not supplied.
 
     .PARAMETER SshDirectory
-        Destination folder. Defaults to `%USERPROFILE%\.ssh`.
+        Destination folder. Defaults to `%USERPROFILE%\.ssh` on Windows and
+        `$HOME/.ssh` on Linux/macOS.
 
     .PARAMETER KeyType
         FIDO key algorithm. Defaults to `ed25519-sk`. Use
@@ -78,7 +79,7 @@ function New-Fido2SshKey {
     param(
         [string]$Email,
         [string]$Label,
-        [string]$SshDirectory = (Join-Path $env:USERPROFILE ".ssh"),
+        [string]$SshDirectory = (Get-Fido2DefaultSshDirectory),
         [ValidateSet('ed25519-sk', 'ecdsa-sk')]
         [string]$KeyType = 'ed25519-sk',
         [switch]$NoPin,
@@ -87,7 +88,7 @@ function New-Fido2SshKey {
     )
 
     if (-not (Get-Command ssh-keygen -ErrorAction SilentlyContinue)) {
-        throw "ssh-keygen was not found. Install the OpenSSH Client Windows feature first."
+        throw "ssh-keygen was not found. Install the OpenSSH client (on Windows: the OpenSSH Client capability; on Linux/macOS: the `openssh-client` / `openssh` package)."
     }
 
     if ([string]::IsNullOrWhiteSpace($Email)) {
@@ -126,18 +127,6 @@ function New-Fido2SshKey {
     $tempPubPath = "$tempKeyPath.pub"
 
     try {
-        # Build a single command line and run it via cmd.exe so the
-        # empty-passphrase argument (-N "") is preserved verbatim.
-        # Windows PowerShell 5.1's native-call operator drops bare
-        # empty-string arguments, which would cause ssh-keygen to treat
-        # "-f" as the passphrase value. `-q` silences the chatty
-        # "Generating public/private..." / fingerprint / randomart
-        # output without hiding the FIDO2 PIN prompt.
-        $cmdLine = '"{0}" -q -t {1} -O resident {2}-O "application={3}" -C "{4}" -N "" -f "{5}"' -f `
-            $sshKeygenExe, $KeyType, $verifyOption, $application, $Email, $tempKeyPath
-
-        Write-Verbose "ssh-keygen command: $cmdLine"
-
         $shouldProcessDesc = "Generate resident FIDO2 SSH key ($KeyType, application=$application" + $(if ($NoPin) { ', touch-only' } else { ', PIN+touch' }) + ")"
         if (-not $PSCmdlet.ShouldProcess("authenticator", $shouldProcessDesc)) {
             return
@@ -149,7 +138,29 @@ function New-Fido2SshKey {
         else {
             Write-Host "Enter your FIDO2 PIN when prompted, then touch your authenticator when it starts blinking."
         }
-        & cmd.exe /c "`"$cmdLine`""
+
+        # Windows PowerShell 5.1's native-call operator drops bare empty-string
+        # arguments, which would cause ssh-keygen to treat "-f" as the
+        # passphrase value for `-N ""`. PowerShell 7+ preserves empty args on
+        # every platform, so the cmd.exe workaround is only needed on the
+        # legacy desktop edition. `-q` silences the chatty
+        # "Generating public/private..." / fingerprint / randomart output
+        # without hiding the FIDO2 PIN prompt.
+        $useCmdShim = ($PSVersionTable.PSEdition -eq 'Desktop')
+
+        if ($useCmdShim) {
+            $cmdLine = '"{0}" -q -t {1} -O resident {2}-O "application={3}" -C "{4}" -N "" -f "{5}"' -f `
+                $sshKeygenExe, $KeyType, $verifyOption, $application, $Email, $tempKeyPath
+            Write-Verbose "ssh-keygen command (cmd.exe): $cmdLine"
+            & cmd.exe /c "`"$cmdLine`""
+        }
+        else {
+            $sshKeygenArgs = @('-q', '-t', $KeyType, '-O', 'resident')
+            if (-not $NoPin) { $sshKeygenArgs += @('-O', 'verify-required') }
+            $sshKeygenArgs += @('-O', "application=$application", '-C', $Email, '-N', '', '-f', $tempKeyPath)
+            Write-Verbose ("ssh-keygen args: " + ($sshKeygenArgs -join ' '))
+            & $sshKeygenExe @sshKeygenArgs
+        }
         if ($LASTEXITCODE -ne 0) {
             throw "ssh-keygen failed with exit code $LASTEXITCODE."
         }

@@ -1,12 +1,13 @@
 # Fido2Ssh
 
 PowerShell module for using **resident FIDO2 SSH keys** stored on a passkey
-provider (YubiKey, other FIDO2 authenticators) from Windows. Covers the full
-lifecycle: create the keys on the authenticator, import them onto a
-workstation, then publish the matching public key to a Linux host either over
-SSH or via the Azure VM Run Command channel.
+provider (YubiKey, other FIDO2 authenticators). Covers the full lifecycle:
+create the keys on the authenticator, import them onto a workstation, then
+publish the matching public key to a Linux host either over SSH or via the
+Azure VM Run Command channel.
 
-Targets Windows PowerShell 5.1 and PowerShell 7+.
+Targets Windows PowerShell 5.1 and PowerShell 7+. Most commands also run on
+PowerShell 7+ for Linux and macOS; `Enable-Fido2SshKeys` is Windows-only.
 
 ## Install
 

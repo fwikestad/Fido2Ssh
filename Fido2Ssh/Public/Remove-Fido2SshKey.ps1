@@ -26,7 +26,8 @@ function Remove-Fido2SshKey {
         keys whose label contains this value are removed.
 
     .PARAMETER SshDirectory
-        Source folder. Defaults to `%USERPROFILE%\.ssh`.
+        Source folder. Defaults to `%USERPROFILE%\.ssh` on Windows and
+        `$HOME/.ssh` on Linux/macOS.
 
     .PARAMETER SkipAgent
         Don't touch `ssh-agent`. Files on disk are still removed.
@@ -57,7 +58,7 @@ function Remove-Fido2SshKey {
         [Parameter(ParameterSetName = 'All')]
         [string]$Label,
 
-        [string]$SshDirectory = (Join-Path $env:USERPROFILE ".ssh"),
+        [string]$SshDirectory = (Get-Fido2DefaultSshDirectory),
         [switch]$SkipAgent,
         [switch]$Force
     )
@@ -109,11 +110,27 @@ function Remove-Fido2SshKey {
     # don't want a cleanup cmdlet to spin up services unnecessarily.
     $useAgent = -not $SkipAgent -and [bool](Get-Command ssh-add -ErrorAction SilentlyContinue)
     if ($useAgent) {
-        $agentService = Get-Service -Name ssh-agent -ErrorAction SilentlyContinue
-        if ($agentService -and $agentService.Status -ne 'Running') {
-            try { Start-Service ssh-agent -ErrorAction Stop }
-            catch {
-                Write-Verbose "Could not start ssh-agent ($_). Skipping agent removal."
+        $isWindowsHost = if (Get-Variable -Name IsWindows -Scope Global -ErrorAction SilentlyContinue) {
+            [bool]$IsWindows
+        } else {
+            $true
+        }
+
+        if ($isWindowsHost) {
+            $agentService = Get-Service -Name ssh-agent -ErrorAction SilentlyContinue
+            if ($agentService -and $agentService.Status -ne 'Running') {
+                try { Start-Service ssh-agent -ErrorAction Stop }
+                catch {
+                    Write-Verbose "Could not start ssh-agent ($_). Skipping agent removal."
+                    $useAgent = $false
+                }
+            }
+        }
+        else {
+            # On Linux/macOS the user owns ssh-agent lifecycle. If no agent
+            # socket is exposed, ssh-add can't do anything useful; skip.
+            if ([string]::IsNullOrWhiteSpace($env:SSH_AUTH_SOCK)) {
+                Write-Verbose 'SSH_AUTH_SOCK is not set. Skipping ssh-agent removal; files on disk will still be removed.'
                 $useAgent = $false
             }
         }

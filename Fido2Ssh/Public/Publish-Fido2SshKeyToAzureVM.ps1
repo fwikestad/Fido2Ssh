@@ -50,7 +50,7 @@ function Publish-Fido2SshKeyToAzureVM {
     }
 
     if ([string]::IsNullOrWhiteSpace($PublicKeyPath)) {
-        $PublicKeyPath = Resolve-Fido2PublicKeyPath -SshDirectory (Join-Path $env:USERPROFILE ".ssh")
+        $PublicKeyPath = Resolve-Fido2PublicKeyPath -SshDirectory (Get-Fido2DefaultSshDirectory)
     }
     if (-not (Test-Path -LiteralPath $PublicKeyPath -PathType Leaf)) {
         throw "Public key file was not found: $PublicKeyPath"
