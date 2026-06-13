@@ -58,7 +58,7 @@ public functions but not to module consumers.
 
 ## Commands
 
-### `Enable-Fido2SshKeys` (Requires Elevetated session)
+### `Enable-Fido2SshKeys` (Requires an elevated session)
 
 One-shot bootstrapper that prepares a Windows workstation for the rest of the
 module: installs the OpenSSH Client Windows capability (provides `ssh`,
