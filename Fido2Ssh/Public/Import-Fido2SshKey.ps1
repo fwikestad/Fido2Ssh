@@ -44,6 +44,17 @@ function Import-Fido2SshKey {
         throw "ssh-keygen was not found. Install the OpenSSH Client Windows feature first."
     }
 
+    # Fail fast on Windows when not elevated. ssh-keygen -K needs raw USB-HID
+    # access to the authenticator to issue CTAP2 authenticatorCredentialManagement;
+    # that path is reserved for elevated processes. Non-elevated sessions fall
+    # through to the Windows WebAuthn API, which does not expose credential
+    # enumeration, so ssh-keygen prompts for a PIN, then prints
+    # "Unable to load resident keys: invalid format" and exits -1. Bailing here
+    # avoids the spurious PIN prompt and the misleading ssh-keygen output.
+    if (-not (Test-Fido2WindowsElevation)) {
+        throw 'Import-Fido2SshKey requires an elevated PowerShell session on Windows.'
+    }
+
     if (-not (Test-Path -LiteralPath $SshDirectory)) {
         New-Item -ItemType Directory -Path $SshDirectory | Out-Null
     }
