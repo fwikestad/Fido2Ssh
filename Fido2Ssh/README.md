@@ -31,8 +31,8 @@ Run `Get-Help <Command> -Full` for parameter details and examples.
 Full documentation, the typical end-to-end workflow, security notes, and the
 issue tracker live in the GitHub repository:
 
-**https://github.com/fwikestad/Auth**
+**https://github.com/fwikestad/Fido2Ssh**
 
 ## License
 
-[MIT](https://github.com/fwikestad/Auth/blob/main/LICENSE) © fwikestad
+[MIT](https://github.com/fwikestad/Fido2Ssh/blob/main/LICENSE) © fwikestad

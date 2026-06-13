@@ -52,11 +52,6 @@ function Import-Fido2SshKey {
     # "Unable to load resident keys: invalid format" and exits -1. Bailing here
     # avoids the spurious PIN prompt and the misleading ssh-keygen output.
     if (-not (Test-Fido2WindowsElevation)) {
-        Write-Host ''
-        Write-Host '  This Windows session is not elevated.' -ForegroundColor Red
-        Write-Host ''
-        Write-Host '  Import-Fido2SshKey requires an elevated PowerShell session on Windows.' -ForegroundColor Cyan
-        Write-Host ''
         throw 'Import-Fido2SshKey requires an elevated PowerShell session on Windows.'
     }
 

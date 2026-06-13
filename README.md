@@ -58,7 +58,7 @@ public functions but not to module consumers.
 
 ## Commands
 
-### `Enable-Fido2SshKeys`
+### `Enable-Fido2SshKeys` (Requires Elevetated session)
 
 One-shot bootstrapper that prepares a Windows workstation for the rest of the
 module: installs the OpenSSH Client Windows capability (provides `ssh`,
@@ -108,7 +108,7 @@ New-Fido2SshKey -Email me@example.com -Label work-laptop -NoPin
 | `-SkipAgent`    | Don’t try to add the new private key to `ssh-agent`.                                         |
 | `-WhatIf`       | Standard `SupportsShouldProcess` dry-run.                                                    |
 
-### `Import-Fido2SshKey`
+### `Import-Fido2SshKey` (Requires Eleveated session)
 
 Extracts every resident FIDO2 SSH key from a connected authenticator into
 `%USERPROFILE%\.ssh` (or a directory you specify) and optionally loads each
