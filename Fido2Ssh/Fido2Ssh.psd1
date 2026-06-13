@@ -8,6 +8,7 @@
 
     FunctionsToExport = @(
         'Enable-Fido2SshKeys',
+        'Get-Fido2SshKey',
         'Import-Fido2SshKey',
         'New-Fido2SshKey',
         'Publish-Fido2SshKey',

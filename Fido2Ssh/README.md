@@ -19,6 +19,7 @@ Import-Module Fido2Ssh
 ## Commands
 
 - `Enable-Fido2SshKeys` — install OpenSSH Client capability and start `ssh-agent`.
+- `Get-Fido2SshKey` — list resident FIDO2 SSH keys currently configured in `~/.ssh`.
 - `New-Fido2SshKey` — create a new resident FIDO2 SSH credential on the authenticator.
 - `Import-Fido2SshKey` — extract resident FIDO2 SSH keys from the authenticator into `~/.ssh`.
 - `Publish-Fido2SshKey` — push a FIDO2 public key to a Linux host's `authorized_keys` over SSH.

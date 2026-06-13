@@ -57,6 +57,7 @@ Fido2Ssh/
     Resolve-Fido2PublicKeyPath.ps1    # shared helper, not exported
   Public/
     Enable-Fido2SshKeys.ps1
+    Get-Fido2SshKey.ps1
     Import-Fido2SshKey.ps1
     New-Fido2SshKey.ps1
     Publish-Fido2SshKey.ps1
@@ -93,6 +94,25 @@ Enable-Fido2SshKeys -SshAgentStartupType Manual
 | `-SkipOpenSsh`          | Don't touch the OpenSSH Client capability (use when OpenSSH is provided elsewhere).  |
 | `-SkipAgent`            | Don't configure or start the `ssh-agent` service.                                    |
 | `-WhatIf` / `-Confirm`  | Standard `SupportsShouldProcess`.                                                    |
+
+### `Get-Fido2SshKey`
+
+Lists resident FIDO2 SSH keys currently configured in `%USERPROFILE%\\.ssh`
+(or a directory you specify) by scanning for `id_*_sk_rk*.pub` files.
+Returns structured objects with parsed key metadata and file paths.
+
+```powershell
+# List all configured resident FIDO2 key handles in ~/.ssh.
+Get-Fido2SshKey
+
+# Filter by label fragment.
+Get-Fido2SshKey -Label work
+```
+
+| Parameter       | Description                                                                            |
+| --------------- | -------------------------------------------------------------------------------------- |
+| `-SshDirectory` | Source folder. Defaults to `%USERPROFILE%\\.ssh` on Windows and `$HOME/.ssh` elsewhere. |
+| `-Label`        | Optional case-insensitive substring filter against the parsed label segment.           |
 
 ### `New-Fido2SshKey`
 
@@ -293,6 +313,7 @@ of `az vm run-command invoke`:
 | Command                        | Windows | Linux | macOS |
 | ------------------------------ | ------- | ----- | ----- |
 | `Enable-Fido2SshKeys`          | ✅      | n/a   | n/a   |
+| `Get-Fido2SshKey`              | ✅      | ✅    | ✅    |
 | `New-Fido2SshKey`              | ✅      | ✅    | ✅    |
 | `Import-Fido2SshKey`           | ✅¹     | ✅    | ✅    |
 | `Publish-Fido2SshKey`          | ✅      | ✅    | ✅    |
