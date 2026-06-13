@@ -1,24 +1,35 @@
 # Fido2Ssh
 
 PowerShell module for using **resident FIDO2 SSH keys** stored on a passkey
-provider (YubiKey, other FIDO2 authenticators) from Windows. Covers the full
+provider (YubiKey, other FIDO2 authenticators). Covers the full
 lifecycle: create the keys on the authenticator, import them onto a
 workstation, then publish the matching public key to a Linux host either over
 SSH or via the Azure VM Run Command channel.
 
-Targets Windows PowerShell 5.1 and PowerShell 7+.
-Most functions schould run on Linux aswell, but it's not tested.
+Targets Windows PowerShell 5.1 and PowerShell 7+. Most commands also run on
+PowerShell 7+ for Linux and macOS — see [Cross-platform notes](#cross-platform-notes)
+below.
 
 ## Prerequisites
 
-- Windows with the OpenSSH Client feature installed (`ssh`, `ssh-keygen`, `ssh-add`).
-- A FIDO2 authenticator (e.g. YubiKey 5)
+- An OpenSSH client (`ssh`, `ssh-keygen`, `ssh-add`).
+  - **Windows**: the built-in OpenSSH Client capability. `Enable-Fido2SshKeys`
+    installs and configures it for you.
+  - **Linux**: distribution-provided `openssh-client` (Debian/Ubuntu) /
+    `openssh-clients` (Fedora/RHEL) / `openssh` (Arch). The version must
+    support FIDO2 SSH keys (OpenSSH 8.2+); recent LTS distros ship this.
+  - **macOS**: Apple's bundled OpenSSH currently lacks `libfido2` support, so
+    install OpenSSH via Homebrew (`brew install openssh`) and make sure it
+    appears on `PATH` before `/usr/bin/ssh`.
+- A FIDO2 authenticator (e.g. YubiKey 5).
 - For `Publish-Fido2SshKeyToAzureVM`: Azure CLI (`az`) signed in to a tenant /
   subscription that has permission to run
   `Microsoft.Compute/virtualMachines/runCommand/action` on the target VM.
 
-Run `Enable-Fido2SshKeys` from an **elevated** PowerShell session to install
-the OpenSSH Client capability and start the `ssh-agent` service in one go.
+On Windows, run `Enable-Fido2SshKeys` from an **elevated** PowerShell session
+to install the OpenSSH Client capability and start the `ssh-agent` service in
+one go. On Linux/macOS, start the agent yourself (e.g.
+`eval $(ssh-agent -s)`) before running the other cmdlets.
 
 ## Installation
 
@@ -276,6 +287,29 @@ of `az vm run-command invoke`:
 - **Username allow-list** — `-UserName` is interpolated into the remote
   script body, so it is validated against `^[A-Za-z0-9._-]+$` to prevent
   shell injection.
+
+## Cross-platform notes
+
+| Command                        | Windows | Linux | macOS |
+| ------------------------------ | ------- | ----- | ----- |
+| `Enable-Fido2SshKeys`          | ✅      | n/a   | n/a   |
+| `New-Fido2SshKey`              | ✅      | ✅    | ✅    |
+| `Import-Fido2SshKey`           | ✅¹     | ✅    | ✅    |
+| `Publish-Fido2SshKey`          | ✅      | ✅    | ✅    |
+| `Publish-Fido2SshKeyToAzureVM` | ✅      | ✅    | ✅    |
+| `Remove-Fido2SshKey`           | ✅      | ✅    | ✅    |
+
+¹ Windows requires an elevated PowerShell session for `Import-Fido2SshKey`
+(see [Import-Fido2SshKey](#import-fido2sshkey-requires-eleveated-session) above).
+
+`Enable-Fido2SshKeys` is Windows-only — it installs the Windows OpenSSH Client
+capability and configures the `ssh-agent` Windows service. On Linux/macOS
+install the OpenSSH client via your package manager and manage `ssh-agent`
+yourself (`eval $(ssh-agent -s)` or via your desktop keyring), then use the
+other cmdlets as documented.
+
+Default `-SshDirectory` paths follow the host OS: `%USERPROFILE%\.ssh` on
+Windows, `$HOME/.ssh` on Linux/macOS.
 
 ## Security notes
 

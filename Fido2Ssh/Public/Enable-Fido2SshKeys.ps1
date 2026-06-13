@@ -53,7 +53,7 @@ function Enable-Fido2SshKeys {
     )
 
     if (-not $IsWindows -and $PSVersionTable.PSVersion.Major -ge 6) {
-        throw "Enable-Fido2SshKeys is Windows-only."
+        throw "Enable-Fido2SshKeys is Windows-only. On Linux/macOS, install OpenSSH client via your package manager (e.g. ``apt install openssh-client`` / ``brew install openssh``) and start ssh-agent yourself (``eval `$(ssh-agent -s)``)."
     }
 
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(

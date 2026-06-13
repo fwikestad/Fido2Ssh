@@ -65,11 +65,11 @@ function Publish-Fido2SshKey {
     }
 
     if (-not (Get-Command ssh -ErrorAction SilentlyContinue)) {
-        throw "ssh was not found. Install the OpenSSH Client Windows feature first."
+        throw "ssh was not found. Install the OpenSSH client (on Windows: the OpenSSH Client capability; on Linux/macOS: the `openssh-client` / `openssh` package)."
     }
 
     if ([string]::IsNullOrWhiteSpace($PublicKeyPath)) {
-        $PublicKeyPath = Resolve-Fido2PublicKeyPath -SshDirectory (Join-Path $env:USERPROFILE ".ssh")
+        $PublicKeyPath = Resolve-Fido2PublicKeyPath -SshDirectory (Get-Fido2DefaultSshDirectory)
     }
     if (-not (Test-Path -LiteralPath $PublicKeyPath -PathType Leaf)) {
         throw "Public key file was not found: $PublicKeyPath"

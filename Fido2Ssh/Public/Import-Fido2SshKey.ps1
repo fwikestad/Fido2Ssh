@@ -19,7 +19,8 @@ function Import-Fido2SshKey {
         keys into `ssh-agent`.
 
     .PARAMETER SshDirectory
-        Destination folder. Defaults to `%USERPROFILE%\.ssh`.
+        Destination folder. Defaults to `%USERPROFILE%\.ssh` on Windows and
+        `$HOME/.ssh` on Linux/macOS.
 
     .PARAMETER Force
         Overwrite existing key files with the same name.
@@ -35,13 +36,13 @@ function Import-Fido2SshKey {
     #>
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
-        [string]$SshDirectory = (Join-Path $env:USERPROFILE ".ssh"),
+        [string]$SshDirectory = (Get-Fido2DefaultSshDirectory),
         [switch]$Force,
         [switch]$SkipAgent
     )
 
     if (-not (Get-Command ssh-keygen -ErrorAction SilentlyContinue)) {
-        throw "ssh-keygen was not found. Install the OpenSSH Client Windows feature first."
+        throw "ssh-keygen was not found. Install the OpenSSH client (on Windows: the OpenSSH Client capability; on Linux/macOS: the `openssh-client` / `openssh` package)."
     }
 
     # Fail fast on Windows when not elevated. ssh-keygen -K needs raw USB-HID
@@ -182,20 +183,43 @@ function Import-Fido2SshKey {
     }
 
     if (-not $SkipAgent) {
-        $service = Get-Service -Name ssh-agent -ErrorAction SilentlyContinue
-        if (-not $service) {
-            Write-Warning "ssh-agent service is not available on this machine. Keys installed to disk only."
+        # PowerShell 7+ exposes $IsWindows; Windows PowerShell 5.1 does not.
+        $isWindowsHost = if (Get-Variable -Name IsWindows -Scope Global -ErrorAction SilentlyContinue) {
+            [bool]$IsWindows
+        } else {
+            $true
+        }
+
+        $agentReady = $true
+
+        if ($isWindowsHost) {
+            $service = Get-Service -Name ssh-agent -ErrorAction SilentlyContinue
+            if (-not $service) {
+                Write-Warning "ssh-agent service is not available on this machine. Keys installed to disk only."
+                $agentReady = $false
+            }
+            else {
+                if ($service.StartType -eq "Disabled") {
+                    try { Set-Service -Name ssh-agent -StartupType Manual }
+                    catch { Write-Warning "Unable to enable ssh-agent startup type. Run from an elevated session for agent loading." }
+                }
+                if ((Get-Service ssh-agent).Status -ne "Running") {
+                    try { Start-Service ssh-agent }
+                    catch { Write-Warning "Unable to start ssh-agent. Run from an elevated session for agent loading." }
+                }
+            }
         }
         else {
-            if ($service.StartType -eq "Disabled") {
-                try { Set-Service -Name ssh-agent -StartupType Manual }
-                catch { Write-Warning "Unable to enable ssh-agent startup type. Run from an elevated session for agent loading." }
+            # On Linux/macOS the user owns ssh-agent lifecycle (e.g.
+            # `eval $(ssh-agent -s)` or a desktop keyring). Warn if no agent
+            # socket is exposed; otherwise ssh-add will use $SSH_AUTH_SOCK.
+            if ([string]::IsNullOrWhiteSpace($env:SSH_AUTH_SOCK)) {
+                Write-Warning 'SSH_AUTH_SOCK is not set. Start ssh-agent (e.g. `eval $(ssh-agent -s)`) before re-running, or pass -SkipAgent. Keys installed to disk only.'
+                $agentReady = $false
             }
-            if ((Get-Service ssh-agent).Status -ne "Running") {
-                try { Start-Service ssh-agent }
-                catch { Write-Warning "Unable to start ssh-agent. Run from an elevated session for agent loading." }
-            }
+        }
 
+        if ($agentReady) {
             if (-not (Get-Command ssh-add -ErrorAction SilentlyContinue)) {
                 Write-Warning "ssh-add was not found. Keys installed to disk but not loaded into ssh-agent."
             }
