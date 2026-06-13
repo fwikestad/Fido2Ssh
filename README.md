@@ -357,18 +357,5 @@ Two GitHub Actions workflows live under [.github/workflows/](.github/workflows/)
   workflow stamps the resolved version into `Fido2Ssh.psd1` via
   `Update-ModuleManifest` before calling `Publish-Module`.
 
-### Releasing a new version
-
-1. Configure a repository secret named `PSGALLERY_API_KEY` in the `PSGallery`
-   GitHub Environment (Settings → Environments). Generate the key at
-   <https://www.powershellgallery.com/account/apikeys> scoped to the
-   `Fido2Ssh` package.
-2. Tag the release commit and push the tag:
-
-   ```powershell
-   git tag v0.2.0
-   git push origin v0.2.0
-   ```
-
-3. Watch the **Publish to PSGallery** workflow run on the Actions tab. After it
-   succeeds the new version is live on the gallery within a few minutes.
+### AI Disclaimer
+Most of the heavy lifting of this module has been done by Github Copilot using various models. 
