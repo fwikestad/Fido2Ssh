@@ -49,7 +49,7 @@ Import-Module Fido2Ssh
 
 ## Key types
 
-### Resident keys (default)
+### Resident keys (default)  **Hardware security keys only**
 
 Resident (discoverable) credentials are **stored on the authenticator itself**.
 The private key file on disk is only a handle; the actual key material lives
@@ -62,7 +62,9 @@ New-Fido2SshKey -Email me@example.com -Label work-laptop
 - Recoverable from the authenticator with `Import-Fido2SshKey`.
 - Filename: `id_<type>_sk_rk_<label>_<thumbprint>`
 
-### Non-resident (software) passkeys
+### Non-resident passkeys
+
+**Supports hardware and software security keys, so can be used with ie. both Windows Hello and Yubikey**
 
 The credential handle is stored **only in the private key file on disk** — not
 on the authenticator. The authenticator still enforces touch (and optionally
