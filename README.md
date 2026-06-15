@@ -1,10 +1,11 @@
 # Fido2Ssh
 
-PowerShell module for using **resident FIDO2 SSH keys** stored on a passkey
-provider (YubiKey, other FIDO2 authenticators). Covers the full
-lifecycle: create the keys on the authenticator, import them onto a
-workstation, then publish the matching public key to a Linux host either over
-SSH or via the Azure VM Run Command channel.
+PowerShell module for using **FIDO2 SSH keys** stored on a passkey
+provider (YubiKey, other FIDO2 authenticators). Supports both **resident**
+(discoverable) credentials stored on the authenticator and **non-resident
+(software) passkeys** where the key handle lives on disk. Covers the full
+lifecycle: create or import keys, then publish the matching public key to a
+Linux host either over SSH or via the Azure VM Run Command channel.
 
 Targets Windows PowerShell 5.1 and PowerShell 7+. Most commands also run on
 PowerShell 7+ for Linux and macOS — see [Cross-platform notes](#cross-platform-notes)
@@ -97,47 +98,71 @@ Enable-Fido2SshKeys -SshAgentStartupType Manual
 
 ### `Get-Fido2SshKey`
 
-Lists resident FIDO2 SSH keys currently configured in `%USERPROFILE%\\.ssh`
-(or a directory you specify) by scanning for `id_*_sk_rk*.pub` files.
-Returns structured objects with parsed key metadata and file paths.
+Lists FIDO2 SSH keys currently configured in `%USERPROFILE%\.ssh` (or a
+directory you specify). Scans for both **resident** keys (`id_*_sk_rk*.pub`)
+and **non-resident** (software) passkeys (`id_*_sk_*.pub` without `_rk`).
+Returns structured objects with parsed key metadata, file paths, and an
+`IsResident` property indicating the credential type.
 
 ```powershell
-# List all configured resident FIDO2 key handles in ~/.ssh.
+# List all FIDO2 key handles in ~/.ssh (resident and non-resident).
 Get-Fido2SshKey
 
 # Filter by label fragment.
 Get-Fido2SshKey -Label work
+
+# Show only resident or only non-resident keys.
+Get-Fido2SshKey -ResidentOnly
+Get-Fido2SshKey -NonResidentOnly
 ```
 
-| Parameter       | Description                                                                            |
-| --------------- | -------------------------------------------------------------------------------------- |
-| `-SshDirectory` | Source folder. Defaults to `%USERPROFILE%\\.ssh` on Windows and `$HOME/.ssh` elsewhere. |
-| `-Label`        | Optional case-insensitive substring filter against the parsed label segment.           |
+| Parameter          | Description                                                                            |
+| ------------------ | -------------------------------------------------------------------------------------- |
+| `-SshDirectory`    | Source folder. Defaults to `%USERPROFILE%\.ssh` on Windows and `$HOME/.ssh` elsewhere. |
+| `-Label`           | Optional case-insensitive substring filter against the parsed label segment.           |
+| `-ResidentOnly`    | Return only resident keys (filename contains `_rk`).                                   |
+| `-NonResidentOnly` | Return only non-resident (software) passkeys (filename does not contain `_rk`).        |
 
 ### `New-Fido2SshKey`
 
-Generates a new resident FIDO2 SSH credential on a connected authenticator and
-installs it into `%USERPROFILE%\.ssh` (or a directory you specify) using the
-canonical filename layout the rest of this module expects.
+Generates a new FIDO2 SSH credential on a connected authenticator and installs
+it into `%USERPROFILE%\.ssh` (or a directory you specify) using the canonical
+filename layout the rest of this module expects.
+
+By default the credential is **resident** — stored on the authenticator and
+recoverable later with `Import-Fido2SshKey`. Pass `-NonResident` to create a
+**software passkey** instead: the key handle lives only in the private key
+file on disk. The authenticator still enforces touch (and optionally PIN) for
+every use, but the credential cannot be re-imported from the authenticator if
+the file is lost — **back it up**.
+
+| Filename layout | |
+|---|---|
+| Resident | `id_<type>_sk_rk_<label>_<thumbprint>` |
+| Non-resident | `id_<type>_sk_<label>_<thumbprint>` |
 
 ```powershell
-# Interactive: prompts for e-mail and label, requires PIN + touch.
+# Interactive: prompts for e-mail and label, requires PIN + touch (resident).
 New-Fido2SshKey
 
-# Non-interactive, touch-only (no PIN), with a custom label.
+# Non-interactive, touch-only (no PIN), resident.
 New-Fido2SshKey -Email me@example.com -Label work-laptop -NoPin
+
+# Non-resident (software) passkey — handle lives on disk only.
+New-Fido2SshKey -Email me@example.com -Label work-laptop -NonResident
 ```
 
-| Parameter       | Description                                                                                  |
-| --------------- | -------------------------------------------------------------------------------------------- |
-| `-Email`        | Value placed in the public-key comment field. Prompted for when not supplied.                |
-| `-Label`        | Label embedded in the FIDO application string (`ssh:<label>`) and the installed filename.    |
-| `-SshDirectory` | Destination folder. Defaults to `%USERPROFILE%\.ssh`.                                        |
-| `-KeyType`      | `ed25519-sk` (default) or `ecdsa-sk` for older authenticators.                               |
-| `-NoPin`        | Omit the default `-O verify-required` constraint (touch-only credential).                    |
-| `-Force`        | Overwrite an existing key file with the same name.                                           |
-| `-SkipAgent`    | Don’t try to add the new private key to `ssh-agent`.                                         |
-| `-WhatIf`       | Standard `SupportsShouldProcess` dry-run.                                                    |
+| Parameter       | Description                                                                                                     |
+| --------------- | --------------------------------------------------------------------------------------------------------------- |
+| `-Email`        | Value placed in the public-key comment field. Prompted for when not supplied.                                   |
+| `-Label`        | Label embedded in the FIDO application string (`ssh:<label>`) and the installed filename.                       |
+| `-SshDirectory` | Destination folder. Defaults to `%USERPROFILE%\.ssh`.                                                           |
+| `-KeyType`      | `ed25519-sk` (default) or `ecdsa-sk` for older authenticators.                                                  |
+| `-NonResident`  | Create a non-resident (software) passkey. Omits `-O resident`; key handle lives on disk only. Back up the file. |
+| `-NoPin`        | Omit the default `-O verify-required` constraint (touch-only credential).                                       |
+| `-Force`        | Overwrite an existing key file with the same name.                                                               |
+| `-SkipAgent`    | Don't try to add the new private key to `ssh-agent`.                                                             |
+| `-WhatIf`       | Standard `SupportsShouldProcess` dry-run.                                                                        |
 
 ### `Import-Fido2SshKey` (Requires an elevated session)
 
@@ -227,19 +252,30 @@ quirks this function works around.
 
 ### `Remove-Fido2SshKey`
 
-Cleans up resident FIDO2 SSH keys produced by `New-Fido2SshKey` /
-`Import-Fido2SshKey`. Removes the matching `id_*_sk_rk*` file pair from
-`%USERPROFILE%\.ssh` (or a directory you specify) and unloads each key from
-`ssh-agent`. The resident credential on the authenticator itself is not
-touched — use `ykman fido credentials delete` (or the equivalent tool for
-your authenticator) for that.
+Cleans up FIDO2 SSH keys produced by `New-Fido2SshKey` / `Import-Fido2SshKey`.
+Removes matching file pairs from `%USERPROFILE%\.ssh` (or a directory you
+specify) and unloads each key from `ssh-agent`.
+
+**Non-resident (software) passkeys are skipped by default.** Deleting the
+private key handle file permanently destroys the credential — it cannot be
+recovered from the authenticator. Pass `-IncludeNonResident` to explicitly
+include them, and remember to also clean up the passkey from the
+authenticator's credential store (Windows Hello settings, `ykman fido
+credentials delete`, your browser's passkey manager, etc.).
+
+The resident credential on the authenticator itself is never touched by this
+cmdlet — use `ykman fido credentials delete` (or the equivalent) for that.
 
 ```powershell
-# Interactive: list every FIDO2 key in ~/.ssh and confirm each removal.
+# Interactive: list every FIDO2 resident key in ~/.ssh and confirm each removal.
+# Non-resident keys found are printed but skipped.
 Remove-Fido2SshKey
 
 # Remove only keys whose label contains "work-laptop", no prompt.
 Remove-Fido2SshKey -Label work-laptop -Force
+
+# Also remove matching non-resident (software) passkeys.
+Remove-Fido2SshKey -Label work-laptop -IncludeNonResident -Force
 
 # Remove one specific key.
 Remove-Fido2SshKey -PublicKeyPath C:\Users\me\.ssh\id_ed25519_sk_rk_pin_abc123def456.pub
@@ -248,20 +284,23 @@ Remove-Fido2SshKey -PublicKeyPath C:\Users\me\.ssh\id_ed25519_sk_rk_pin_abc123de
 Remove-Fido2SshKey -SkipAgent
 ```
 
-| Parameter              | Description                                                                                |
-| ---------------------- | ------------------------------------------------------------------------------------------ |
-| `-PublicKeyPath`       | Remove this specific `*.pub` and its matching private key only.                            |
-| `-Label`               | Case-insensitive substring filter against the label segment of the canonical filename.     |
-| `-SshDirectory`        | Source folder. Defaults to `%USERPROFILE%\.ssh`.                                           |
-| `-SkipAgent`           | Don't touch `ssh-agent`. Files on disk are still removed.                                  |
-| `-Force`               | Skip the per-key confirmation prompt (still honours `-WhatIf` / explicit `-Confirm`).      |
-| `-WhatIf` / `-Confirm` | Standard `SupportsShouldProcess` (declared `ConfirmImpact = 'High'`).                      |
+| Parameter               | Description                                                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `-PublicKeyPath`        | Remove this specific `*.pub` and its matching private key only.                                                    |
+| `-Label`                | Case-insensitive substring filter against the label segment of the canonical filename.                             |
+| `-SshDirectory`         | Source folder. Defaults to `%USERPROFILE%\.ssh`.                                                                   |
+| `-IncludeNonResident`   | Also remove non-resident (software) passkey file pairs. Use with care — the handle file cannot be recovered.       |
+| `-SkipAgent`            | Don't touch `ssh-agent`. Files on disk are still removed.                                                          |
+| `-Force`                | Skip the per-key confirmation prompt (still honours `-WhatIf` / explicit `-Confirm`).                              |
+| `-WhatIf` / `-Confirm`  | Standard `SupportsShouldProcess` (declared `ConfirmImpact = 'High'`).                                              |
 
 ### Private helpers
 
 - `Get-Fido2KeyThumbprint` / `Get-Fido2CanonicalName` — derive the short
-  thumbprint and canonical `id_<keytype>_sk_rk[_<label>]_<thumbprint>`
-  filename used by `New-Fido2SshKey` and `Import-Fido2SshKey`.
+  thumbprint and canonical filename. `Get-Fido2CanonicalName` accepts a
+  `Resident` bool (default `$true`) to produce either the resident
+  `id_<type>_sk_rk[_<label>]_<thumbprint>` or non-resident
+  `id_<type>_sk[_<label>]_<thumbprint>` form.
 - `Resolve-Fido2PublicKeyPath` — used by both `Publish-*` functions to locate
   and (when needed) prompt for the correct `.pub` file in `%USERPROFILE%\.ssh`.
 
@@ -275,16 +314,23 @@ Import-Module .\Fido2Ssh\Fido2Ssh.psd1
 # 1a. Create a brand-new resident FIDO2 SSH credential on the authenticator.
 New-Fido2SshKey -Email me@example.com -Label work-laptop
 
-# 1b. …or import credentials that already exist on the authenticator.
+# 1b. Create a non-resident (software) passkey — handle lives on disk only.
+#     Back up the private key file; it cannot be re-imported from the authenticator.
+New-Fido2SshKey -Email me@example.com -Label work-laptop -NonResident
+
+# 1c. Or import resident credentials that already exist on the authenticator.
 Import-Fido2SshKey
 
-# 2a. Push the public key to a reachable Linux host over SSH.
+# 2. Inspect what's installed (IsResident column distinguishes key types).
+Get-Fido2SshKey
+
+# 3a. Push the public key to a reachable Linux host over SSH.
 Publish-Fido2SshKey azureuser@server.example.com
 
-# 2b. …or push it to an Azure VM without any inbound SSH.
+# 3b. …or push it to an Azure VM without any inbound SSH.
 Publish-Fido2SshKeyToAzureVM -ResourceGroupName my-rg -VMName my-vm
 
-# 3. Log in using the FIDO2-backed key (touch when prompted).
+# 4. Log in using the FIDO2-backed key (touch when prompted).
 ssh azureuser@server.example.com
 ```
 
@@ -334,10 +380,15 @@ Windows, `$HOME/.ssh` on Linux/macOS.
 
 ## Security notes
 
-- Resident FIDO2 SSH keys still require a **touch** (and, depending on how
-  they were generated, a PIN) on the authenticator for every authentication.
-  The "private key" file on disk is only a handle into the authenticator; it
-  is useless without the physical device.
+- Both resident and non-resident FIDO2 SSH keys still require a **touch**
+  (and, depending on how they were generated, a PIN) on the authenticator for
+  every authentication.
+- For **resident** keys: the private key file on disk is only a handle into
+  the authenticator; it is useless without the physical device, and lost handle
+  files can be re-imported with `Import-Fido2SshKey`.
+- For **non-resident (software) passkeys**: the private key handle file on disk
+  is the only copy. Losing it means the key is permanently gone and cannot be
+  recovered from the authenticator. Keep a secure backup.
 - `-WipeExistingKeys` will remove **all** other entries from the remote
   `authorized_keys`. Make sure you have a recovery path (console access,
   another admin user, Azure Bastion, etc.) before using it.
