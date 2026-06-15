@@ -82,6 +82,7 @@ New-Fido2SshKey -Email me@example.com -Label work-laptop -NonResident
 
 | Feature | Resident | Non-resident |
 |---------|----------|--------------|
+| Software Key support (WHfB etc) | ❌ | ✅ |
 | Credential stored on authenticator | ✅ | ❌ |
 | Recoverable with `Import-Fido2SshKey` | ✅ | ❌ |
 | Touch required per use | ✅ | ✅ |
