@@ -47,15 +47,15 @@ function Get-Fido2KeyThumbprint {
 function Get-Fido2CanonicalName {
     <#
     .SYNOPSIS
-        Builds the canonical resident FIDO2 SSH key filename used by this module.
+        Builds the canonical FIDO2 SSH key filename used by this module.
 
     .DESCRIPTION
-        Returns a name of the form `id_<typeSuffix>_rk[_<label>]_<thumbprint>`,
-        e.g. `id_ed25519_sk_rk_work-laptop_abc123def456`. This is the layout
-        produced by `New-Fido2SshKey` and that `Import-Fido2SshKey` renames
-        `ssh-keygen -K` output to, so a single credential on the authenticator
-        always lands at exactly one filename in the SSH directory regardless of
-        whether it was created or extracted.
+        For resident keys returns `id_<typeSuffix>_rk[_<label>]_<thumbprint>`,
+        e.g. `id_ed25519_sk_rk_work-laptop_abc123def456`.
+
+        For non-resident (software) keys the `_rk` segment is omitted:
+        `id_<typeSuffix>_sk[_<label>]_<thumbprint>`,
+        e.g. `id_ed25519_sk_work-laptop_abc123def456`.
 
     .PARAMETER KeyType
         FIDO key algorithm: `ed25519-sk` or `ecdsa-sk`.
@@ -66,6 +66,10 @@ function Get-Fido2CanonicalName {
 
     .PARAMETER Thumbprint
         Short thumbprint produced by `Get-Fido2KeyThumbprint`.
+
+    .PARAMETER Resident
+        When $true (default) the filename includes the `_rk` resident-key
+        marker. Pass $false for non-resident (software) passkeys.
     #>
     [CmdletBinding()]
     param(
@@ -74,7 +78,8 @@ function Get-Fido2CanonicalName {
         [string]$KeyType,
         [string]$Label,
         [Parameter(Mandatory = $true)]
-        [string]$Thumbprint
+        [string]$Thumbprint,
+        [bool]$Resident = $true
     )
 
     $typeSuffix = switch ($KeyType) {
@@ -82,8 +87,16 @@ function Get-Fido2CanonicalName {
         'ecdsa-sk'   { 'ecdsa_sk' }
     }
 
-    if ([string]::IsNullOrWhiteSpace($Label)) {
-        return "id_${typeSuffix}_rk_${Thumbprint}"
+    if ($Resident) {
+        if ([string]::IsNullOrWhiteSpace($Label)) {
+            return "id_${typeSuffix}_rk_${Thumbprint}"
+        }
+        return "id_${typeSuffix}_rk_${Label}_${Thumbprint}"
     }
-    return "id_${typeSuffix}_rk_${Label}_${Thumbprint}"
+    else {
+        if ([string]::IsNullOrWhiteSpace($Label)) {
+            return "id_${typeSuffix}_sk_${Thumbprint}"
+        }
+        return "id_${typeSuffix}_sk_${Label}_${Thumbprint}"
+    }
 }

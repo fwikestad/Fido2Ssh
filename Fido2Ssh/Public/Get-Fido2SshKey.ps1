@@ -1,14 +1,22 @@
 function Get-Fido2SshKey {
     <#
     .SYNOPSIS
-        Lists resident FIDO2 SSH keys currently configured in the local SSH directory.
+        Lists FIDO2 SSH keys currently configured in the local SSH directory.
 
     .DESCRIPTION
         Scans `-SshDirectory` (default `%USERPROFILE%\.ssh` on Windows and
-        `$HOME/.ssh` on Linux/macOS) for files matching `id_*_sk_rk*.pub` and
+        `$HOME/.ssh` on Linux/macOS) for FIDO2 SSH key public key files and
         returns one object per match.
 
-        The command surfaces canonical filename metadata (key type, label,
+        Both **resident** keys (stored on the authenticator, filenames contain
+        `_rk`) and **non-resident (software) passkeys** (handle on disk only,
+        no `_rk`) are listed. Use `-ResidentOnly` or `-NonResidentOnly` to
+        narrow the results to one type.
+
+        Each returned object has an `IsResident` property that indicates
+        whether the key is a resident or non-resident credential.
+
+        The command also surfaces canonical filename metadata (key type, label,
         thumbprint) and whether the matching private-key handle file exists.
 
     .PARAMETER SshDirectory
@@ -19,17 +27,30 @@ function Get-Fido2SshKey {
         Optional case-insensitive substring filter against the parsed label
         segment of the canonical filename.
 
+    .PARAMETER ResidentOnly
+        Return only resident keys (those with `_rk` in the filename).
+
+    .PARAMETER NonResidentOnly
+        Return only non-resident (software) passkeys (those without `_rk`).
+
     .EXAMPLE
         Get-Fido2SshKey
 
     .EXAMPLE
         Get-Fido2SshKey -Label work
+
+    .EXAMPLE
+        Get-Fido2SshKey -NonResidentOnly
     #>
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = 'All')]
     [OutputType([pscustomobject])]
     param(
         [string]$SshDirectory = (Get-Fido2DefaultSshDirectory),
-        [string]$Label
+        [string]$Label,
+        [Parameter(ParameterSetName = 'ResidentOnly')]
+        [switch]$ResidentOnly,
+        [Parameter(ParameterSetName = 'NonResidentOnly')]
+        [switch]$NonResidentOnly
     )
 
     if (-not (Test-Path -LiteralPath $SshDirectory)) {
@@ -37,24 +58,52 @@ function Get-Fido2SshKey {
         return
     }
 
-    $pubFiles = @(Get-ChildItem -Path $SshDirectory -File -Filter 'id_*_sk_rk*.pub' -ErrorAction SilentlyContinue)
+    # Collect public key files, keeping track of whether each is resident.
+    # Resident:     id_*_sk_rk*.pub
+    # Non-resident: id_*_sk_*.pub  that do NOT match the resident pattern.
+    $keyEntries = @()
 
-    foreach ($pub in ($pubFiles | Sort-Object Name)) {
+    if (-not $NonResidentOnly) {
+        $residentPubs = @(Get-ChildItem -Path $SshDirectory -File -Filter 'id_*_sk_rk*.pub' -ErrorAction SilentlyContinue)
+        foreach ($pub in $residentPubs) {
+            $keyEntries += [pscustomobject]@{ File = $pub; IsResident = $true }
+        }
+    }
+
+    if (-not $ResidentOnly) {
+        $allSkPubs = @(Get-ChildItem -Path $SshDirectory -File -Filter 'id_*_sk_*.pub' -ErrorAction SilentlyContinue)
+        foreach ($pub in $allSkPubs) {
+            # Skip files already captured as resident keys.
+            if ($pub.Name -match '_rk') { continue }
+            $keyEntries += [pscustomobject]@{ File = $pub; IsResident = $false }
+        }
+    }
+
+    foreach ($entry in ($keyEntries | Sort-Object { $_.File.Name })) {
+        $pub      = $entry.File
+        $isRes    = $entry.IsResident
         $baseName = [System.IO.Path]::GetFileNameWithoutExtension($pub.Name)
         $privatePath = Join-Path $pub.DirectoryName $baseName
 
-        $keyType = $null
+        $keyType     = $null
         $parsedLabel = $null
-        $thumbprint = $null
+        $thumbprint  = $null
 
-        if ($baseName -match '^id_(?<typeSuffix>ed25519_sk|ecdsa_sk)_rk(?:_(?<label>.+))?_(?<thumb>[A-Za-z0-9]{12})$') {
-            $keyType = switch ($matches['typeSuffix']) {
-                'ed25519_sk' { 'ed25519-sk' }
-                'ecdsa_sk' { 'ecdsa-sk' }
-                default { $null }
+        if ($isRes) {
+            # id_<typeSuffix>_rk[_<label>]_<thumb12>
+            if ($baseName -match '^id_(?<typeSuffix>ed25519_sk|ecdsa_sk)_rk(?:_(?<label>.+))?_(?<thumb>[A-Za-z0-9]{12})$') {
+                $keyType     = switch ($matches['typeSuffix']) { 'ed25519_sk' { 'ed25519-sk' } 'ecdsa_sk' { 'ecdsa-sk' } default { $null } }
+                $parsedLabel = $matches['label']
+                $thumbprint  = $matches['thumb'].ToLowerInvariant()
             }
-            $parsedLabel = $matches['label']
-            $thumbprint = $matches['thumb'].ToLowerInvariant()
+        }
+        else {
+            # id_<typeSuffix>_sk[_<label>]_<thumb12>  (no _rk)
+            if ($baseName -match '^id_(?<typeSuffix>ed25519_sk|ecdsa_sk)_sk(?:_(?<label>.+))?_(?<thumb>[A-Za-z0-9]{12})$') {
+                $keyType     = switch ($matches['typeSuffix']) { 'ed25519_sk' { 'ed25519-sk' } 'ecdsa_sk' { 'ecdsa-sk' } default { $null } }
+                $parsedLabel = $matches['label']
+                $thumbprint  = $matches['thumb'].ToLowerInvariant()
+            }
         }
 
         $labelValue = if ($null -ne $parsedLabel) { $parsedLabel } else { '' }
@@ -64,7 +113,7 @@ function Get-Fido2SshKey {
 
         $line = Get-Content -LiteralPath $pub.FullName -TotalCount 1 -ErrorAction SilentlyContinue
         $algorithm = $null
-        $comment = $null
+        $comment   = $null
         if (-not [string]::IsNullOrWhiteSpace($line)) {
             $parts = $line -split '\s+'
             if ($parts.Count -ge 1) { $algorithm = $parts[0] }
@@ -72,12 +121,13 @@ function Get-Fido2SshKey {
         }
 
         $result = [pscustomobject]@{
-            Name = $baseName
-            KeyType = $keyType
-            Label = $parsedLabel
-            Thumbprint = $thumbprint
-            Algorithm = $algorithm
-            Comment = $comment
+            Name          = $baseName
+            KeyType       = $keyType
+            Label         = $parsedLabel
+            Thumbprint    = $thumbprint
+            Algorithm     = $algorithm
+            Comment       = $comment
+            IsResident    = $isRes
             PublicKeyPath = $pub.FullName
             PrivateKeyPath = $privatePath
             HasPrivateKey = (Test-Path -LiteralPath $privatePath)
@@ -85,7 +135,7 @@ function Get-Fido2SshKey {
 
         $defaultDisplay = New-Object System.Management.Automation.PSPropertySet(
             'DefaultDisplayPropertySet',
-            [string[]]@('Label', 'Algorithm')
+            [string[]]@('Label', 'Algorithm', 'IsResident')
         )
         $result | Add-Member -MemberType MemberSet -Name PSStandardMembers -Value ([System.Management.Automation.PSMemberInfo[]]@($defaultDisplay))
 
