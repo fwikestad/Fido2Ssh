@@ -1,22 +1,32 @@
 function New-Fido2SshKey {
     <#
     .SYNOPSIS
-        Generates a resident FIDO2 SSH key on a connected authenticator.
+        Generates a FIDO2 SSH key on a connected authenticator.
 
     .DESCRIPTION
         Prompts for an e-mail (used as the key comment) and a label
         (used in the FIDO2 application string), then runs `ssh-keygen`
-        to create a new resident Security Key credential on the
-        authenticator (YubiKey or other passkey provider). The
-        resulting key files are renamed into the canonical filename
-        layout that the rest of this module expects and moved into
-        `-SshDirectory` (default `%USERPROFILE%\.ssh`):
+        to create a new Security Key credential on the authenticator
+        (YubiKey or other passkey provider).
+
+        By default the credential is **resident** — stored on the
+        authenticator and recoverable with `Import-Fido2SshKey`. The
+        resulting files follow the canonical resident layout:
 
             id_<keytype>_sk_rk_<label>_<thumbprint>
             id_<keytype>_sk_rk_<label>_<thumbprint>.pub
 
-        The thumbprint is a short slice of the key's SHA256
-        fingerprint, so multiple credentials with the same label
+        Pass `-NonResident` to create a **software passkey** instead.
+        In this mode the credential is NOT stored on the authenticator;
+        only the private key handle file on disk holds the credential.
+        Losing that file means the key cannot be recovered. The files
+        follow the non-resident layout (no `_rk` segment):
+
+            id_<keytype>_sk_<label>_<thumbprint>
+            id_<keytype>_sk_<label>_<thumbprint>.pub
+
+        In both modes the thumbprint is a short slice of the key's
+        SHA256 fingerprint, so multiple credentials with the same label
         won't collide.
 
         By default the credential is created with `-O verify-required`,
@@ -26,9 +36,10 @@ function New-Fido2SshKey {
 
         The private key file is created with an empty passphrase so
         it can be loaded by `ssh-agent` and used by the publish
-        cmdlets without further prompting. The actual private key
-        material stays on the authenticator; the file on disk is only
-        a handle to the resident credential.
+        cmdlets without further prompting. For resident keys the actual
+        private key material stays on the authenticator; the file on
+        disk is only a handle. For non-resident keys the key handle
+        itself lives in that file — back it up accordingly.
 
     .PARAMETER Email
         Value placed in the public-key comment field. Prompted for
@@ -49,6 +60,12 @@ function New-Fido2SshKey {
         FIDO key algorithm. Defaults to `ed25519-sk`. Use
         `ecdsa-sk` for older authenticators that don't support
         Ed25519.
+
+    .PARAMETER NonResident
+        Create a non-resident (software) passkey. The credential
+        handle is stored in the private key file on disk rather than
+        on the authenticator. The file cannot be re-imported from the
+        authenticator if lost — keep a backup.
 
     .PARAMETER NoPin
         Omit the default `-O verify-required` constraint so the
@@ -71,9 +88,18 @@ function New-Fido2SshKey {
     .EXAMPLE
         New-Fido2SshKey -Email me@example.com -Label work-laptop -NoPin
 
-        Generates a touch-only credential with application
+        Generates a touch-only resident credential with application
         `ssh:work-laptop` and installs it as
         ~/.ssh/id_ed25519_sk_rk_work-laptop_<thumbprint>(.pub).
+
+    .EXAMPLE
+        New-Fido2SshKey -Email me@example.com -Label work-laptop -NonResident
+
+        Generates a PIN-protected non-resident (software) passkey.
+        No resident credential is stored on the authenticator. Key
+        installed as ~/.ssh/id_ed25519_sk_work-laptop_<thumbprint>(.pub).
+        Keep the private key file backed up — it cannot be re-imported
+        from the authenticator.
     #>
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
@@ -82,6 +108,7 @@ function New-Fido2SshKey {
         [string]$SshDirectory = (Get-Fido2DefaultSshDirectory),
         [ValidateSet('ed25519-sk', 'ecdsa-sk')]
         [string]$KeyType = 'ed25519-sk',
+        [switch]$NonResident,
         [switch]$NoPin,
         [switch]$Force,
         [switch]$SkipAgent
@@ -113,6 +140,7 @@ function New-Fido2SshKey {
     $application  = "ssh:$Label"
     $sshKeygenExe = (Get-Command ssh-keygen).Source
     $verifyOption = if ($NoPin) { '' } else { '-O verify-required ' }
+    $isResident   = -not $NonResident.IsPresent
 
     if (-not (Test-Path -LiteralPath $SshDirectory)) {
         New-Item -ItemType Directory -Path $SshDirectory | Out-Null
@@ -127,7 +155,7 @@ function New-Fido2SshKey {
     $tempPubPath = "$tempKeyPath.pub"
 
     try {
-        $shouldProcessDesc = "Generate resident FIDO2 SSH key ($KeyType, application=$application" + $(if ($NoPin) { ', touch-only' } else { ', PIN+touch' }) + ")"
+        $shouldProcessDesc = "Generate $( if ($isResident) { 'resident' } else { 'non-resident (software)' } ) FIDO2 SSH key ($KeyType, application=$application" + $(if ($NoPin) { ', touch-only' } else { ', PIN+touch' }) + ")"
         if (-not $PSCmdlet.ShouldProcess("authenticator", $shouldProcessDesc)) {
             return
         }
@@ -149,13 +177,15 @@ function New-Fido2SshKey {
         $useCmdShim = ($PSVersionTable.PSEdition -eq 'Desktop')
 
         if ($useCmdShim) {
-            $cmdLine = '"{0}" -q -t {1} -O resident {2}-O "application={3}" -C "{4}" -N "" -f "{5}"' -f `
-                $sshKeygenExe, $KeyType, $verifyOption, $application, $Email, $tempKeyPath
+            $residentOption = if ($isResident) { '-O resident ' } else { '' }
+            $cmdLine = '"{0}" -q -t {1} {2}{3}-O "application={4}" -C "{5}" -N "" -f "{6}"' -f `
+                $sshKeygenExe, $KeyType, $residentOption, $verifyOption, $application, $Email, $tempKeyPath
             Write-Verbose "ssh-keygen command (cmd.exe): $cmdLine"
             & cmd.exe /c "`"$cmdLine`""
         }
         else {
-            $sshKeygenArgs = @('-q', '-t', $KeyType, '-O', 'resident')
+            $sshKeygenArgs = @('-q', '-t', $KeyType)
+            if ($isResident) { $sshKeygenArgs += @('-O', 'resident') }
             if (-not $NoPin) { $sshKeygenArgs += @('-O', 'verify-required') }
             $sshKeygenArgs += @('-O', "application=$application", '-C', $Email, '-N', '', '-f', $tempKeyPath)
             Write-Verbose ("ssh-keygen args: " + ($sshKeygenArgs -join ' '))
@@ -173,7 +203,7 @@ function New-Fido2SshKey {
         # so that Import-Fido2SshKey can land an extracted copy of
         # this same credential at the exact same filename.
         $thumbprint  = Get-Fido2KeyThumbprint -PublicKeyPath $tempPubPath
-        $finalName   = Get-Fido2CanonicalName -KeyType $KeyType -Label $Label -Thumbprint $thumbprint
+        $finalName   = Get-Fido2CanonicalName -KeyType $KeyType -Label $Label -Thumbprint $thumbprint -Resident $isResident
         $destKeyPath = Join-Path $SshDirectory $finalName
         $destPubPath = "$destKeyPath.pub"
 
@@ -190,6 +220,12 @@ function New-Fido2SshKey {
         Write-Host "FIDO2 SSH key installed:"
         Write-Host "  Private: $destKeyPath"
         Write-Host "  Public:  $destPubPath"
+        if (-not $isResident) {
+            Write-Host ""
+            Write-Host "  NOTE: This is a non-resident (software) passkey. The private key handle"
+            Write-Host "  is stored ONLY in the file above — not on the authenticator. If you"
+            Write-Host "  lose this file the key cannot be recovered. Back it up securely."
+        }
 
         if (-not $SkipAgent -and (Get-Command ssh-add -ErrorAction SilentlyContinue)) {
             & ssh-add $destKeyPath
