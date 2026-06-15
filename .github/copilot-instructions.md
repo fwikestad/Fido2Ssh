@@ -36,6 +36,12 @@ Fido2Ssh/
 basename). Every file added to `Private/` is available to all public functions
 but never exported.
 
+
+---
+## Git handling
+Never commit or push directly to `main`. Always create a feature branch and push it. 
+If the branch is already on a non-main branch, don't change branch unless explicitly told to create new branch.
+
 ---
 
 ## Key filename conventions
@@ -110,11 +116,13 @@ underscores** (enforced in `New-Fido2SshKey` with `^[A-Za-z0-9.-]+$`).
 
 | File | Audience | Style |
 |------|----------|-------|
-| `README.md` (repo root) | GitHub visitors, developers | Full docs: prerequisites, all commands with parameter tables, workflow examples, security notes, CI/CD |
+| `README.md` (repo root) | GitHub visitors, developers | Overview: description, prerequisites, installation, key types, typical workflow, cross-platform/security/CI notes |
+| `REFERENCE.md` (repo root) | Developers wanting detail | Full command reference: every parameter table, examples, Azure quirks, module layout |
 | `Fido2Ssh/README.md` | PSGallery page | **Minimal**: 1-paragraph description, Install snippet, command list, link to GitHub repo |
 
-When adding a new public command or parameter, update **both** files:
-- Root README: full description + parameter table + examples.
+When adding a new public command or parameter, update **all three** files:
+- `README.md`: nothing (commands are not listed there); update the typical workflow if the new command fits it.
+- `REFERENCE.md`: full `## CommandName` section with description, parameter table, and examples.
 - `Fido2Ssh/README.md`: one bullet in the command list only.
 
 ---
