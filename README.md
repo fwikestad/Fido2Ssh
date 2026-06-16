@@ -11,6 +11,9 @@ Targets Windows PowerShell 5.1 and PowerShell 7+. Most commands also run on
 PowerShell 7+ for Linux and macOS — see [Cross-platform notes](#cross-platform-notes)
 below.
 
+## Command reference
+See (REFERENCE.md)[REFERENCE.md]
+
 ## Prerequisites
 
 - An OpenSSH client (`ssh`, `ssh-keygen`, `ssh-add`).
