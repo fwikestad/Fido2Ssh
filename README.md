@@ -12,7 +12,7 @@ PowerShell 7+ for Linux and macOS — see [Cross-platform notes](#cross-platform
 below.
 
 ## Command reference
-See (REFERENCE.md)[REFERENCE.md]
+See [REFERENCE.md](REFERENCE.md)
 
 ## Prerequisites
 
