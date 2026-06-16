@@ -35,12 +35,19 @@ Fido2Ssh/
 **Rule**: Every file added to `Public/` is automatically exported (by file
 basename). Every file added to `Private/` is available to all public functions
 but never exported.
+Before creating a new file in `Public/` or `Private/`, verify that no file
+with the same basename already exists in the other directory. If a name
+conflict would occur, choose a distinct name to avoid shadowing or unintended
+exports.
 
 
 ---
 ## Git handling
 Never commit or push directly to `main`. Always create a feature branch and push it. 
 If the branch is already on a non-main branch, don't change branch unless explicitly told to create new branch.
+
+All new branches schould be based on origin main for most recent updates, and named with the format `feat/<description>` or `bugfix/<description>`. 
+
 
 ---
 
@@ -120,10 +127,17 @@ underscores** (enforced in `New-Fido2SshKey` with `^[A-Za-z0-9.-]+$`).
 | `REFERENCE.md` (repo root) | Developers wanting detail | Full command reference: every parameter table, examples, Azure quirks, module layout |
 | `Fido2Ssh/README.md` | PSGallery page | **Minimal**: 1-paragraph description, Install snippet, command list, link to GitHub repo |
 
-When adding a new public command or parameter, update **all three** files:
-- `README.md`: nothing (commands are not listed there); update the typical workflow if the new command fits it.
-- `REFERENCE.md`: full `## CommandName` section with description, parameter table, and examples.
-- `Fido2Ssh/README.md`: one bullet in the command list only.
+When adding a new public command or parameter, apply these per-file rules:
+- `REFERENCE.md`: always add a full `## CommandName` section with description, parameter table, and examples.
+- `Fido2Ssh/README.md`: always add one bullet in the command list.
+- `README.md`: do not add commands to any list; update the typical workflow section only if the new command is part of the standard end-to-end user flow (for example, key creation, import, or publishing). Informational or helper commands do not need to be added.
+
+When removing a public command:
+- Delete its file from `Public/`.
+- Remove its `##` section from `REFERENCE.md`.
+- Remove its bullet from `Fido2Ssh/README.md`.
+- Update the typical workflow section in `README.md` only if that command appeared there.
+- Increment the module version in `Fido2Ssh.psd1` following semver (minor bump for removals).
 
 ---
 
@@ -145,5 +159,9 @@ When adding a new public command or parameter, update **all three** files:
 git tag v0.x.y
 git push origin v0.x.y
 ```
+
+Follow semver when choosing the tag: patch (`v0.x.Y`) for bug fixes and
+non-breaking changes, minor (`v0.X.0`) for new public commands or parameters,
+major (`vX.0.0`) for breaking changes to existing public APIs.
 
 The publish workflow handles everything else.
