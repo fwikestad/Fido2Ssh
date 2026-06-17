@@ -59,7 +59,7 @@ The private key file on disk is only a handle; the actual key material lives
 on the device.
 
 ```powershell
-New-Fido2SshKey -Email me@example.com -Label work-laptop
+New-Fido2SshKey -Label work-laptop
 ```
 
 - Recoverable from the authenticator with `Import-Fido2SshKey`.
@@ -75,7 +75,7 @@ PIN) for every use, but the credential cannot be recovered if the file is lost.
 **Back up the private key file.**
 
 ```powershell
-New-Fido2SshKey -Email me@example.com -Label work-laptop -NonResident
+New-Fido2SshKey -Label work-laptop -NonResident
 ```
 
 - Cannot be re-imported from the authenticator.
@@ -98,11 +98,11 @@ New-Fido2SshKey -Email me@example.com -Label work-laptop -NonResident
 Import-Module .\Fido2Ssh\Fido2Ssh.psd1
 
 # 1a. Create a brand-new resident FIDO2 SSH credential on the authenticator.
-New-Fido2SshKey -Email me@example.com -Label work-laptop
+New-Fido2SshKey -Label work-laptop
 
 # 1b. Create a non-resident (software) passkey — handle lives on disk only.
 #     Back up the private key file; it cannot be re-imported from the authenticator.
-New-Fido2SshKey -Email me@example.com -Label work-laptop -NonResident
+New-Fido2SshKey -Label work-laptop -NonResident
 
 # 1c. Or import resident credentials that already exist on the authenticator.
 Import-Fido2SshKey

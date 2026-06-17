@@ -1,6 +1,6 @@
 @{
     RootModule        = 'Fido2Ssh.psm1'
-    ModuleVersion     = '0.1.0'
+    ModuleVersion     = '0.2.0'
     GUID              = 'f3c2b1a4-6d7e-4b8a-9c3f-1a2b3c4d5e6f'
     Author            = 'fwikestad'
     Description       = 'Helpers for importing and publishing resident Hardware FIDO2 SSH keys (YubiKey, other passkey providers) from Windows.'

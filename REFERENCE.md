@@ -83,27 +83,30 @@ the file is lost — **back it up**.
 | Non-resident | `id_<type>_sk_<label>_<thumbprint>` |
 
 ```powershell
-# Interactive: prompts for e-mail and label, requires PIN + touch (resident).
-New-Fido2SshKey
+# Minimal: prompts for label only, requires PIN + touch (resident).
+New-Fido2SshKey -Label work-laptop
 
-# Non-interactive, touch-only (no PIN), resident.
-New-Fido2SshKey -Email me@example.com -Label work-laptop -NoPin
+# Touch-only (no PIN), resident, with an optional comment.
+New-Fido2SshKey -Label work-laptop -Comment "me@example.com" -NoPin
 
 # Non-resident (software) passkey — handle lives on disk only.
-New-Fido2SshKey -Email me@example.com -Label work-laptop -NonResident
+New-Fido2SshKey -Label work-laptop -NonResident
+
+# Multiple comment values (joined with a space).
+New-Fido2SshKey -Label home -Comment "me@example.com", "home-desktop"
 ```
 
-| Parameter       | Description                                                                                                     |
-| --------------- | --------------------------------------------------------------------------------------------------------------- |
-| `-Email`        | Value placed in the public-key comment field. Prompted for when not supplied.                                   |
-| `-Label`        | Label embedded in the FIDO application string (`ssh:<label>`) and the installed filename.                       |
-| `-SshDirectory` | Destination folder. Defaults to `%USERPROFILE%\.ssh`.                                                           |
-| `-KeyType`      | `ed25519-sk` (default) or `ecdsa-sk` for older authenticators.                                                  |
-| `-NonResident`  | Create a non-resident (software) passkey. Omits `-O resident`; key handle lives on disk only. Back up the file. |
-| `-NoPin`        | Omit the default `-O verify-required` constraint (touch-only credential).                                       |
-| `-Force`        | Overwrite an existing key file with the same name.                                                               |
-| `-SkipAgent`    | Don't try to add the new private key to `ssh-agent`.                                                             |
-| `-WhatIf`       | Standard `SupportsShouldProcess` dry-run.                                                                        |
+| Parameter          | Description                                                                                                     |
+| ------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `-Comment` / `-c`  | Optional comment(s) stored in the SSH key comment field. Accepts an array; values are joined with a space.      |
+| `-Label`           | Label embedded in the FIDO application string (`ssh:<label>`) and the installed filename.                       |
+| `-SshDirectory`    | Destination folder. Defaults to `%USERPROFILE%\.ssh`.                                                           |
+| `-KeyType`         | `ed25519-sk` (default) or `ecdsa-sk` for older authenticators.                                                  |
+| `-NonResident`     | Create a non-resident (software) passkey. Omits `-O resident`; key handle lives on disk only. Back up the file. |
+| `-NoPin`           | Omit the default `-O verify-required` constraint (touch-only credential).                                       |
+| `-Force`           | Overwrite an existing key file with the same name.                                                               |
+| `-SkipAgent`       | Don't try to add the new private key to `ssh-agent`.                                                             |
+| `-WhatIf`          | Standard `SupportsShouldProcess` dry-run.                                                                        |
 
 ---
 
