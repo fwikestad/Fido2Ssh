@@ -4,10 +4,10 @@ function New-Fido2SshKey {
         Generates a FIDO2 SSH key on a connected authenticator.
 
     .DESCRIPTION
-        Prompts for an e-mail (used as the key comment) and a label
-        (used in the FIDO2 application string), then runs `ssh-keygen`
-        to create a new Security Key credential on the authenticator
-        (YubiKey or other passkey provider).
+        Creates a new Security Key credential on a connected authenticator
+        (YubiKey or other passkey provider) using `ssh-keygen`, then installs
+        the resulting key files into the user's `.ssh` directory under the
+        canonical filename layout this module expects.
 
         By default the credential is **resident** — stored on the
         authenticator and recoverable with `Import-Fido2SshKey`. The
@@ -41,9 +41,12 @@ function New-Fido2SshKey {
         disk is only a handle. For non-resident keys the key handle
         itself lives in that file — back it up accordingly.
 
-    .PARAMETER Email
-        Value placed in the public-key comment field. Prompted for
-        when not supplied.
+    .PARAMETER Comment
+        One or more comment strings placed in the SSH key comment field
+        (passed to `ssh-keygen -C`). Multiple values are joined with a
+        space. Optional — if omitted, no comment is added to the key.
+        Visible in the private key file; note that the public key file
+        uses the label (not this comment) as the meaningful identifier.
 
     .PARAMETER Label
         Short label embedded in the FIDO application string
@@ -79,31 +82,37 @@ function New-Fido2SshKey {
         Don't try to add the new private key to `ssh-agent`.
 
     .EXAMPLE
-        New-Fido2SshKey
+        New-Fido2SshKey -Label work-laptop
 
-        Prompts for e-mail and label, generates a PIN-protected
-        resident Ed25519 FIDO2 SSH key on the authenticator, then
-        installs it into the user's .ssh directory.
+        Generates a PIN-protected resident Ed25519 FIDO2 SSH key on the
+        authenticator, then installs it into the user's .ssh directory.
 
     .EXAMPLE
-        New-Fido2SshKey -Email me@example.com -Label work-laptop -NoPin
+        New-Fido2SshKey -Label work-laptop -Comment "me@example.com" -NoPin
 
         Generates a touch-only resident credential with application
-        `ssh:work-laptop` and installs it as
+        `ssh:work-laptop` and a comment, installed as
         ~/.ssh/id_ed25519_sk_rk_work-laptop_<thumbprint>(.pub).
 
     .EXAMPLE
-        New-Fido2SshKey -Email me@example.com -Label work-laptop -NonResident
+        New-Fido2SshKey -Label work-laptop -NonResident
 
         Generates a PIN-protected non-resident (software) passkey.
         No resident credential is stored on the authenticator. Key
         installed as ~/.ssh/id_ed25519_sk_work-laptop_<thumbprint>(.pub).
         Keep the private key file backed up — it cannot be re-imported
         from the authenticator.
+
+    .EXAMPLE
+        New-Fido2SshKey -Label home -Comment "me@example.com", "home-desktop"
+
+        Generates a resident key with multiple comment values joined as a
+        single space-separated comment string.
     #>
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
-        [string]$Email,
+        [Alias('c')]
+        [string[]]$Comment,
         [string]$Label,
         [string]$SshDirectory = (Get-Fido2DefaultSshDirectory),
         [ValidateSet('ed25519-sk', 'ecdsa-sk')]
@@ -118,15 +127,10 @@ function New-Fido2SshKey {
         throw "ssh-keygen was not found. Install the OpenSSH client (on Windows: the OpenSSH Client capability; on Linux/macOS: the `openssh-client` / `openssh` package)."
     }
 
-    if ([string]::IsNullOrWhiteSpace($Email)) {
-        $Email = Read-Host "E-mail (added as the SSH key comment)"
-    }
-    $Email = $Email.Trim()
-    if ([string]::IsNullOrWhiteSpace($Email)) {
-        throw "E-mail must not be empty."
-    }
-    if ($Email -match '["\r\n]') {
-        throw "E-mail must not contain quotes or line breaks."
+    # Build the comment string from the optional array.
+    $commentStr = if ($Comment -and $Comment.Count -gt 0) { ($Comment -join ' ').Trim() } else { '' }
+    if ($commentStr -match '["\r\n]') {
+        throw "Comment must not contain quotes or line breaks."
     }
 
     if ([string]::IsNullOrWhiteSpace($Label)) {
@@ -178,8 +182,14 @@ function New-Fido2SshKey {
 
         if ($useCmdShim) {
             $residentOption = if ($isResident) { '-O resident ' } else { '' }
-            $cmdLine = '"{0}" -q -t {1} {2}{3}-O "application={4}" -C "{5}" -N "" -f "{6}"' -f `
-                $sshKeygenExe, $KeyType, $residentOption, $verifyOption, $application, $Email, $tempKeyPath
+            if ($commentStr) {
+                $cmdLine = '"{0}" -q -t {1} {2}{3}-O "application={4}" -C "{5}" -N "" -f "{6}"' -f `
+                    $sshKeygenExe, $KeyType, $residentOption, $verifyOption, $application, $commentStr, $tempKeyPath
+            }
+            else {
+                $cmdLine = '"{0}" -q -t {1} {2}{3}-O "application={4}" -N "" -f "{5}"' -f `
+                    $sshKeygenExe, $KeyType, $residentOption, $verifyOption, $application, $tempKeyPath
+            }
             Write-Verbose "ssh-keygen command (cmd.exe): $cmdLine"
             & cmd.exe /c "`"$cmdLine`""
         }
@@ -187,7 +197,9 @@ function New-Fido2SshKey {
             $sshKeygenArgs = @('-q', '-t', $KeyType)
             if ($isResident) { $sshKeygenArgs += @('-O', 'resident') }
             if (-not $NoPin) { $sshKeygenArgs += @('-O', 'verify-required') }
-            $sshKeygenArgs += @('-O', "application=$application", '-C', $Email, '-N', '', '-f', $tempKeyPath)
+            $sshKeygenArgs += @('-O', "application=$application")
+            if ($commentStr) { $sshKeygenArgs += @('-C', $commentStr) }
+            $sshKeygenArgs += @('-N', '', '-f', $tempKeyPath)
             Write-Verbose ("ssh-keygen args: " + ($sshKeygenArgs -join ' '))
             & $sshKeygenExe @sshKeygenArgs
         }
